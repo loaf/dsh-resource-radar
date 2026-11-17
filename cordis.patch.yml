@@ -1,0 +1,4 @@
+- insert:
+    - id: resource-radar
+      name: 'dsh-resource-radar'
+      config: {}

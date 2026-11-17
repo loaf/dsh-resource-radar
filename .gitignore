@@ -1,0 +1,11 @@
+node_modules/
+dist/
+*.log
+.resource-radar-diag.log
+.host-diag.json
+.repro-out.txt
+.imp-out.txt
+.res-out.txt
+.unit-test.out
+.DS_Store
+Thumbs.db
