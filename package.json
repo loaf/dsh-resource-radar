@@ -1,7 +1,7 @@
 {
-  "name": "dsh-resource-radar",
+  "name": "dsh-resource-radar-v6",
   "version": "1.0.0",
-  "description": "Resource Radar (资源雷达) — a freebie / deal / open-source / news aggregation workbench plugin for DeepSeek Harness, with a Host-side CORS-free RSS collector.",
+  "description": "Resource Radar (璧勬簮闆疯揪) 鈥?a freebie / deal / open-source / news aggregation workbench plugin for DeepSeek Harness, with a Host-side CORS-free RSS collector.",
   "type": "module",
   "license": "MIT",
   "repository": { "type": "git", "url": "https://github.com/loaf/dsh-resource-radar.git" },

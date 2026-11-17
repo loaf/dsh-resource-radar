@@ -77,7 +77,8 @@ const CATEGORIES = ['ai', 'vps', 'cloud', 'domain', 'opensource', 'software', 'd
 
 function defaultSelection(ctx) {
   try {
-    const sel = ctx.agentDefaultModel && ctx.agentDefaultModel.currentSelection && ctx.agentDefaultModel.currentSelection();
+    const svc = ctx.agentDefaultModel;
+    const sel = svc && svc.currentSelection && svc.currentSelection();
     if (sel && sel.provider && sel.model) return { provider: sel.provider, model: sel.model, from: 'default-selection' };
   } catch (e) { diag('defaultSelection failed: ' + String(e).slice(0, 120)); }
   try {
@@ -193,10 +194,13 @@ async function radarAi(request, ctx) {
   });
 }
 
+/** Required services: the model-call channel and the default model selection. */
+export const inject = ['llm', 'agentDefaultModel'];
+
 export function apply(ctx) {
   let present = false;
   try { present = !!(ctx && ctx.webServer); } catch { present = false; }
-  diag('apply() ran; webServer=' + (present ? 'present' : 'missing') + ' llm=' + (!!ctx.llm) + ' defaultModel=' + (!!ctx.agentDefaultModel));
+  diag('apply() ran; webServer=' + (present ? 'present' : 'missing'));
 
   const install = (webServer) => {
     if (!webServer || typeof webServer.register !== 'function') { diag('install: no usable webServer'); return; }

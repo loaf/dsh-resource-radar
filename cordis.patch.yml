@@ -1,4 +1,5 @@
 - insert:
     - id: resource-radar
-      name: 'dsh-resource-radar'
+      name: 'dsh-resource-radar-v6'
+      inject: ['llm', 'agentDefaultModel', 'webServer']
       config: {}
