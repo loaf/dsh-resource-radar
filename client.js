@@ -219,6 +219,7 @@ window.__ModuleLoader__.load({
       return h('div', { style: cardS.card },
         h('div', { style: { display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center' } },
           h(Badge, { text: (KIND_ICON[item.kind] || '•') + ' ' + t('kind_' + item.kind), hi: item.kind === 'freebie' }),
+          item.ai ? h(Badge, { text: '🤖 AI', hi: true }) : null,
           h(Badge, { text: t('cat_' + item.category) }),
           h(Badge, { text: t('ob_' + item.obtain) }),
           h(Badge, { text: '★'.repeat(Math.max(1, Math.min(5, item.quality || 3))) }),
@@ -308,6 +309,38 @@ window.__ModuleLoader__.load({
         for (const src of enabled) await collectSource(src);
       }, [store.sources, collectSource, t]);
 
+      const aiReview = useCallback(async () => {
+        const targets = items.slice(0, 12).filter((it) => !it.ai);
+        if (!targets.length) { setLog((l) => [{ name: t('aiNone'), added: 0, at: new Date().toLocaleTimeString() }, ...l].slice(0, 8)); return; }
+        setBusySrc('ai');
+        try {
+          const payload = encodeURIComponent(JSON.stringify({
+            items: targets.map((it) => ({ id: it.id, title: it.title, note: it.note || '', url: it.url || '', source: it.source || '' })),
+          }));
+          const res = await fetch('/radar-ai?payload=' + payload, { signal: AbortSignal.timeout(90000) });
+          const data = await res.json();
+          if (!data.ok) throw new Error(data.error || 'HTTP ' + res.status);
+          update((s) => ({ ...s, items: s.items.map((it) => {
+            const r = (data.results || []).find((x) => x.id === it.id);
+            if (!r) return it;
+            return {
+              ...it,
+              kind: r.kind || it.kind,
+              category: r.category || it.category,
+              obtain: r.obtain || it.obtain,
+              quality: r.quality || it.quality,
+              ai: true,
+              note: (r.reason ? r.reason + (it.note ? '；' + it.note : '') : it.note).slice(0, 200),
+            };
+          }) }));
+          setLog((l) => [{ name: '🤖 ' + t('aiDone') + ' [' + (data.model || '?') + '] +' + (data.results || []).length, added: (data.results || []).length, at: new Date().toLocaleTimeString() }, ...l].slice(0, 8));
+        } catch (e) {
+          setLog((l) => [{ name: '🤖 AI: ' + String((e && e.message) || e).slice(0, 90), added: 0, fail: true, at: new Date().toLocaleTimeString() }, ...l].slice(0, 8));
+        } finally {
+          setBusySrc(null);
+        }
+      }, [items, update, t]);
+
       const fetchServer = useCallback(async () => {
         if (!store.serverUrl) { setFetchNote(t('setUrlFirst')); return; }
         setBusy(true); setFetchNote('');
@@ -356,7 +389,9 @@ window.__ModuleLoader__.load({
         h('button', { style: cardS.btn, onClick: () => update((s) => ({ ...s, view: s.view === 'compact' ? 'cards' : 'compact' })) },
           store.view === 'compact' ? '▦ ' + t('viewCards') : '☰ ' + t('viewCompact')),
         h('button', { style: cardS.btn, title: t('collectTip'), onClick: collectEnabled },
-          busySrc ? '⏳ ' + t('collecting') : '⟳ ' + t('collect')));
+          busySrc ? '⏳ ' + t('collecting') : '⟳ ' + t('collect')),
+        h('button', { style: cardS.btn, title: t('aiTip'), onClick: aiReview },
+          busySrc === 'ai' ? '⏳ ' + t('aiRunning') : '🤖 ' + t('aiReview')));
 
       const collectLog = log.length
         ? h('div', { style: { margin: '8px 0', display: 'flex', flexDirection: 'column', gap: 2 } },
@@ -485,7 +520,9 @@ window.__ModuleLoader__.load({
               fTitle: '标题', fCode: '兑换码（可选）', fNote: '备注（可选）', manual: '手动录入', submitItem: '录入到雷达',
               serverUrl: '自托管 freebie-radar 实例地址（尽力拉取 /api/items）', pullNow: '拉取', openInstance: '在浏览器打开实例',
               fetched: '已拉取 {n} 条并替换本地信息流。', fetchFail: '拉取失败（接口路径或 CORS 不匹配），已保留本地数据。', setUrlFirst: '请先填写实例地址。',
-              bridgeNote: 'B 方案：Host 端确定性抓取（/radar-fetch），无 CORS 限制；AI 定级可作为后续增强。',
+              bridgeNote: 'B 方案：Host 端确定性抓取（/radar-fetch），无 CORS 限制；AI 定级走 DSH 默认模型。',
+              aiReview: 'AI 定级', aiRunning: 'AI 处理中…', aiTip: '用 DSH 当前配置的模型给当前筛选下的条目做语义定级',
+              aiDone: 'AI 定级完成', aiNone: '当前筛选下没有待定级条目',
               collect: '采集', collecting: '采集中…', collectTip: '手动采集全部已启用源', collectOne: '采集此源',
               noFeed: '未配置订阅地址（feed URL）', noEnabledSrc: '没有已启用的源', feedUrlHint: 'RSS / Atom 订阅地址…',
               kindHint: '默认形态', lastCollect: '上次采集新增', neverCollected: '尚未采集',
@@ -507,7 +544,9 @@ window.__ModuleLoader__.load({
               fTitle: 'Title', fCode: 'Redeem code (optional)', fNote: 'Note (optional)', manual: 'Manual', submitItem: 'Add to radar',
               serverUrl: 'Self-hosted freebie-radar instance URL (best-effort /api/items pull)', pullNow: 'Pull', openInstance: 'Open instance in browser',
               fetched: 'Pulled {n} items and replaced the local feed.', fetchFail: 'Pull failed (endpoint or CORS mismatch); local data kept.', setUrlFirst: 'Enter the instance URL first.',
-              bridgeNote: 'Option B: deterministic Host-side fetch via /radar-fetch (no CORS). AI classification can be a later enhancement.',
+              bridgeNote: 'Option B: deterministic Host-side fetch via /radar-fetch (no CORS). AI triage runs on the DSH default model.',
+              aiReview: 'AI triage', aiRunning: 'AI working…', aiTip: 'Classify filtered items with the DSH-configured model',
+              aiDone: 'AI triage done', aiNone: 'No untriaged items under current filters',
               collect: 'Collect', collecting: 'Collecting…', collectTip: 'Manually collect every enabled source', collectOne: 'Collect this source',
               noFeed: 'No feed URL configured', noEnabledSrc: 'No enabled sources', feedUrlHint: 'RSS / Atom feed URL…',
               kindHint: 'Default kind', lastCollect: 'Last collect added', neverCollected: 'Not collected yet',
