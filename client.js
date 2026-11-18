@@ -5,8 +5,9 @@ window.__ModuleLoader__.load({
     const { useState, useMemo, useCallback } = React;
     const h = React.createElement;
 
-    const STORE_KEY = 'resource-radar.v2';
+    const STORE_KEY = 'resource-radar.v3';
     const PANEL_ID = 'resource-radar';
+    const REPO_URL = 'https://github.com/loaf/dsh-resource-radar';
 
     const KINDS = ['freebie', 'deal', 'opensource', 'news', 'info', 'noise'];
     const OBTAINS = ['free', 'conditional', 'lottery', 'trial', 'promo', 'paid'];
@@ -77,12 +78,11 @@ window.__ModuleLoader__.load({
             items: Array.isArray(s.items) ? s.items : SEED_ITEMS,
             sources: Array.isArray(s.sources) && s.sources.length ? s.sources : SEED_SOURCES,
             blocklist: Array.isArray(s.blocklist) ? s.blocklist : [],
-            serverUrl: typeof s.serverUrl === 'string' ? s.serverUrl : '',
             view: s.view === 'compact' ? 'compact' : 'cards',
           };
         }
       } catch (e) { /* fall through */ }
-      return { items: SEED_ITEMS, sources: SEED_SOURCES, blocklist: [], serverUrl: '', view: 'cards' };
+      return { items: SEED_ITEMS, sources: SEED_SOURCES, blocklist: [], view: 'cards' };
     }
 
     function matchesBlock(title, list) {
@@ -170,6 +170,8 @@ window.__ModuleLoader__.load({
       badge: { display: 'inline-block', padding: '1px 8px', borderRadius: 999, fontSize: 11, border: '1px solid var(--dsw-alias-border-l2)', color: 'var(--dsw-alias-label-secondary)', whiteSpace: 'nowrap' },
       badgeHi: { display: 'inline-block', padding: '1px 8px', borderRadius: 999, fontSize: 11, background: 'color-mix(in srgb, var(--dsw-alias-state-success-primary) 18%, transparent)', color: 'var(--dsw-alias-state-success-primary)', whiteSpace: 'nowrap' },
       btn: { border: '1px solid var(--dsw-alias-border-l2)', background: 'transparent', color: 'var(--dsw-alias-label-primary)', borderRadius: 8, padding: '3px 10px', fontSize: 12, cursor: 'pointer' },
+      btnFav: { border: '1px solid var(--dsw-alias-border-l2)', background: 'transparent', color: 'var(--dsw-alias-state-warn-primary)', borderRadius: 8, padding: '3px 10px', fontSize: 12, cursor: 'pointer' },
+      openBtn: { display: 'inline-block', border: '2px solid var(--dsw-alias-brand-primary)', background: 'var(--dsw-alias-brand-primary)', color: 'var(--dsw-alias-bg-base)', borderRadius: 8, padding: '5px 16px', fontSize: 13, fontWeight: 700, textDecoration: 'none', cursor: 'pointer' },
       input: { border: '1px solid var(--dsw-alias-border-l2)', background: 'var(--dsw-alias-bg-base)', color: 'var(--dsw-alias-label-primary)', borderRadius: 8, padding: '4px 8px', fontSize: 12 },
       select: { border: '1px solid var(--dsw-alias-border-l2)', background: 'var(--dsw-alias-bg-base)', color: 'var(--dsw-alias-label-primary)', borderRadius: 8, padding: '4px 6px', fontSize: 12 },
       tab: { border: 'none', background: 'transparent', color: 'var(--dsw-alias-label-secondary)', borderRadius: 8, padding: '5px 12px', fontSize: 13, cursor: 'pointer' },
@@ -206,22 +208,24 @@ window.__ModuleLoader__.load({
       const fav = item.fav ? '★' : '☆';
       const title = item.titleZh || item.title;
       const note = item.noteZh || item.note;
+      const openBtn = item.url
+        ? h('a', { href: item.url, target: '_blank', rel: 'noreferrer', style: cardS.openBtn }, '🔗 ' + t('open'))
+        : null;
       if (view === 'compact') {
         return h('div', { style: { ...cardS.card, flexDirection: 'row', alignItems: 'center', gap: 10, padding: '8px 12px' } },
           h('span', { style: { fontSize: 14 } }, KIND_ICON[item.kind] || '•'),
           h('span', { style: { ...cardS.title, flex: 1, fontSize: 13 } }, title),
           h('span', { style: cardS.meta }, item.source),
           h('span', { style: cardS.meta }, item.time),
-          h('button', { style: cardS.btn, title: t('favorite'), onClick: () => onFav(item.id) }, fav),
+          openBtn,
+          h('button', { style: cardS.btnFav, title: t('favorite'), onClick: () => onFav(item.id) }, fav),
           h('button', { style: cardS.btn, title: t('dismiss'), onClick: () => onDismiss(item.id) }, '✕'));
       }
-      const link = item.url
-        ? h('a', { href: item.url, target: '_blank', rel: 'noreferrer', style: { ...cardS.link, fontSize: 12 } }, t('open'))
-        : null;
       return h('div', { style: cardS.card },
         h('div', { style: { display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center' } },
           h(Badge, { text: (KIND_ICON[item.kind] || '•') + ' ' + t('kind_' + item.kind), hi: item.kind === 'freebie' }),
           item.ai ? h(Badge, { text: '🤖 AI', hi: true }) : null,
+          item.fav ? h(Badge, { text: '★ ' + t('favorited'), hi: true }) : null,
           h(Badge, { text: t('cat_' + item.category) }),
           h(Badge, { text: t('ob_' + item.obtain) }),
           h(Badge, { text: '★'.repeat(Math.max(1, Math.min(5, item.quality || 3))) }),
@@ -232,8 +236,8 @@ window.__ModuleLoader__.load({
           h('code', { style: { fontSize: 12, padding: '2px 8px', borderRadius: 6, background: 'var(--dsw-alias-bg-layer-2)' } }, item.code),
           h('button', { style: cardS.btn, onClick: () => { try { navigator.clipboard.writeText(item.code); } catch (e) { /* ignore */ } } }, t('copy'))) : null,
         h('div', { style: { display: 'flex', gap: 8, alignItems: 'center' } },
-          link,
-          h('button', { style: cardS.btn, onClick: () => onFav(item.id) }, fav + ' ' + t('favorite')),
+          openBtn,
+          h('button', { style: item.fav ? cardS.btnFav : cardS.btn, onClick: () => onFav(item.id) }, fav + ' ' + t('favorite')),
           h('button', { style: cardS.btn, onClick: () => onDismiss(item.id) }, t('dismiss'))));
     }
 
@@ -247,25 +251,29 @@ window.__ModuleLoader__.load({
       const [q, setQ] = useState('');
       const [pane, setPane] = useState('feed');
       const [draft, setDraft] = useState({ title: '', kind: 'freebie', category: 'other', obtain: 'free', url: '', note: '', code: '' });
-      const [fetchNote, setFetchNote] = useState('');
-      const [busy, setBusy] = useState(false);
       const [busySrc, setBusySrc] = useState(null);
       const [log, setLog] = useState([]);
 
+      const isFavChannel = channel === 'favorites';
       const ch = CHANNELS[channel];
+      const favCount = useMemo(() => store.items.filter((it) => it.fav).length, [store.items]);
+
       const items = useMemo(() => {
         return store.items.filter((it) => {
-          if (!ch.kinds.includes(it.kind)) return false;
-          if (ch.obtains && !ch.obtains.includes(it.obtain)) return false;
-          if (ch.categories && !ch.categories.includes(it.category)) return false;
-          if (kindF && it.kind !== kindF) return false;
-          if (catF && it.category !== catF) return false;
-          if (obF && it.obtain !== obF) return false;
+          if (isFavChannel) { if (!it.fav) return false; }
+          else {
+            if (!ch.kinds.includes(it.kind)) return false;
+            if (ch.obtains && !ch.obtains.includes(it.obtain)) return false;
+            if (ch.categories && !ch.categories.includes(it.category)) return false;
+            if (kindF && it.kind !== kindF) return false;
+            if (catF && it.category !== catF) return false;
+            if (obF && it.obtain !== obF) return false;
+          }
           if (q) { const needle = q.toLowerCase(); const hay = ((it.titleZh || it.title) + ' ' + it.title).toLowerCase(); if (!hay.includes(needle)) return false; }
           if (matchesBlock(it.title, store.blocklist)) return false;
           return true;
         }).sort((a, b) => (b.time || '').localeCompare(a.time || ''));
-      }, [store.items, store.blocklist, channel, kindF, catF, obF, q]);
+      }, [store.items, store.blocklist, channel, kindF, catF, obF, q, isFavChannel]);
 
       const counts = useMemo(() => {
         const c = {};
@@ -342,7 +350,7 @@ window.__ModuleLoader__.load({
           }
           added = mergeItems(triaged);
           update((s) => ({ ...s, sources: s.sources.map((x) => (x.id === source.id ? { ...x, lastCollect: new Date().toISOString(), lastCount: added, lastError: '' } : x)) }));
-          setLog((l) => [{ name: source.name + ' [AI ✓ +' + added + (dropped ? ' · 淘汰 ' + dropped : '') + (aiError ? ' · 部分AI失败' : '') + ']', added, fail: !!aiError, at: new Date().toLocaleTimeString() }, ...l].slice(0, 8));
+          setLog((l) => [{ name: source.name + ' [AI +' + added + (dropped ? ' / 淘汰 ' + dropped : '') + (aiError ? ' / 部分AI失败' : '') + ']', added, fail: !!aiError, at: new Date().toLocaleTimeString() }, ...l].slice(0, 8));
           return { ok: true, added };
         } catch (e) {
           update((s) => ({ ...s, sources: s.sources.map((x) => (x.id === source.id ? { ...x, lastCollect: new Date().toISOString(), lastCount: 0, lastError: String((e && e.message) || e).slice(0, 240) } : x)) }));
@@ -359,73 +367,25 @@ window.__ModuleLoader__.load({
         for (const src of enabled) await collectSource(src);
       }, [store.sources, collectSource, t]);
 
-      const aiReview = useCallback(async () => {
-        const targets = items.slice(0, 12).filter((it) => !it.ai);
-        if (!targets.length) { setLog((l) => [{ name: t('aiNone'), added: 0, at: new Date().toLocaleTimeString() }, ...l].slice(0, 8)); return; }
-        setBusySrc('ai');
-        try {
-          const data = await aiBatch(targets);
-          const { map, apply } = applyAiResults(data.results);
-          update((s) => ({ ...s, items: s.items.map((it) => (map.has(it.id) ? apply(it) : it)) }));
-          setLog((l) => [{ name: '🤖 ' + t('aiDone') + ' [' + (data.model || '?') + '] +' + (data.results || []).length, added: (data.results || []).length, at: new Date().toLocaleTimeString() }, ...l].slice(0, 8));
-        } catch (e) {
-          setLog((l) => [{ name: '🤖 AI: ' + String((e && e.message) || e).slice(0, 90), added: 0, fail: true, at: new Date().toLocaleTimeString() }, ...l].slice(0, 8));
-        } finally {
-          setBusySrc(null);
-        }
-      }, [items, aiBatch, applyAiResults, update, t]);
-
-      const fetchServer = useCallback(async () => {
-        if (!store.serverUrl) { setFetchNote(t('setUrlFirst')); return; }
-        setBusy(true); setFetchNote('');
-        try {
-          const base = store.serverUrl.replace(/\/+$/, '');
-          const res = await fetch(base + '/api/items?limit=200');
-          if (!res.ok) throw new Error('HTTP ' + res.status);
-          const data = await res.json();
-          const list = Array.isArray(data) ? data : Array.isArray(data.items) ? data.items : [];
-          if (!list.length) throw new Error('empty');
-          const mapped = list.map((raw, i) => ({
-            id: 'r' + i + '-' + String(raw.id || i),
-            title: String(raw.title || raw.name || 'untitled'),
-            kind: KINDS.includes(raw.kind) ? raw.kind : 'info',
-            category: CATEGORIES.includes(raw.category) ? raw.category : 'other',
-            obtain: OBTAINS.includes(raw.obtain) ? raw.obtain : 'free',
-            quality: Number(raw.quality) || 3,
-            source: String(raw.source || raw.source_name || 'radar'),
-            url: String(raw.url || raw.link || ''),
-            note: String(raw.note || raw.reason || ''),
-            time: String(raw.time || raw.created_at || '').slice(0, 10),
-            code: String(raw.code || ''),
-          }));
-          update((s) => ({ ...s, items: mapped }));
-          setFetchNote(t('fetched').replace('{n}', String(mapped.length)));
-        } catch (e) {
-          setFetchNote(t('fetchFail'));
-        } finally {
-          setBusy(false);
-        }
-      }, [store.serverUrl, update, t]);
-
       const channelTabs = Object.keys(CHANNELS).map((key) =>
         h('button', { key, style: channel === key ? cardS.tabOn : cardS.tab, onClick: () => setChannel(key) }, t('ch_' + key)));
 
       const filterBar = h('div', { style: { display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' } },
+        h('button', { key: 'favorites', style: channel === 'favorites' ? cardS.tabOn : cardS.tab, onClick: () => setChannel(isFavChannel ? 'selectFreebie' : 'favorites') },
+          '★ ' + t('ch_favorites') + ' ' + favCount),
         h('input', { style: { ...cardS.input, minWidth: 180 }, placeholder: t('search'), value: q, onChange: (e) => setQ(e.target.value) }),
-        h('select', { style: cardS.select, value: kindF, onChange: (e) => setKindF(e.target.value) },
-          h('option', { value: '' }, t('allKinds')), KINDS.map((k) => h('option', { key: k, value: k }, t('kind_' + k)))),
-        h('select', { style: cardS.select, value: catF, onChange: (e) => setCatF(e.target.value) },
-          h('option', { value: '' }, t('allCats')), CATEGORIES.map((c) => h('option', { key: c, value: c }, t('cat_' + c)))),
-        h('select', { style: cardS.select, value: obF, onChange: (e) => setObF(e.target.value) },
-          h('option', { value: '' }, t('allObtains')), OBTAINS.map((o) => h('option', { key: o, value: o }, t('ob_' + o)))),
+        !isFavChannel ? h('select', { style: cardS.select, value: kindF, onChange: (e) => setKindF(e.target.value) },
+          h('option', { value: '' }, t('allKinds')), KINDS.map((k) => h('option', { key: k, value: k }, t('kind_' + k)))) : null,
+        !isFavChannel ? h('select', { style: cardS.select, value: catF, onChange: (e) => setCatF(e.target.value) },
+          h('option', { value: '' }, t('allCats')), CATEGORIES.map((c) => h('option', { key: c, value: c }, t('cat_' + c)))) : null,
+        !isFavChannel ? h('select', { style: cardS.select, value: obF, onChange: (e) => setObF(e.target.value) },
+          h('option', { value: '' }, t('allObtains')), OBTAINS.map((o) => h('option', { key: o, value: o }, t('ob_' + o)))) : null,
         h('span', { style: cardS.meta }, t('showing').replace('{n}', String(items.length))),
         h('span', { style: { marginLeft: 'auto' } }),
         h('button', { style: cardS.btn, onClick: () => update((s) => ({ ...s, view: s.view === 'compact' ? 'cards' : 'compact' })) },
           store.view === 'compact' ? '▦ ' + t('viewCards') : '☰ ' + t('viewCompact')),
         h('button', { style: cardS.btn, title: t('collectTip'), onClick: collectEnabled },
-          busySrc ? '⏳ ' + t('collecting') : '⟳ ' + t('collect')),
-        h('button', { style: cardS.btn, title: t('aiTip'), onClick: aiReview },
-          busySrc === 'ai' ? '⏳ ' + t('aiRunning') : '🤖 ' + t('aiReview')));
+          busySrc ? '⏳ ' + t('collecting') : '⟳ ' + t('collect')));
 
       const collectLog = log.length
         ? h('div', { style: { margin: '8px 0', display: 'flex', flexDirection: 'column', gap: 2 } },
@@ -433,7 +393,7 @@ window.__ModuleLoader__.load({
             (e.fail ? '✕ ' : '✓ ') + e.name + ' · +' + e.added + ' · ' + e.at)))
         : null;
 
-      const paneTabs = ['feed', 'sources', 'blocks', 'add', 'settings'].map((key) =>
+      const paneTabs = ['feed', 'sources', 'blocks', 'add', 'about'].map((key) =>
         h('button', { key, style: pane === key ? cardS.tabOn : cardS.tab, onClick: () => setPane(key) }, t('pane_' + key)));
 
       let body = null;
@@ -442,7 +402,7 @@ window.__ModuleLoader__.load({
           items.length
             ? h('div', { style: { display: store.view === 'compact' ? 'flex' : 'grid', flexDirection: 'column', gap: 8, gridTemplateColumns: store.view === 'compact' ? undefined : 'repeat(auto-fill, minmax(320px, 1fr))' } },
               items.map((it) => h(ItemCard, { key: it.id, t, item: it, view: store.view, onFav: toggleFav, onDismiss: dismiss })))
-            : h('p', { style: cardS.meta }, t('empty')));
+            : h('p', { style: cardS.meta }, isFavChannel ? t('favEmpty') : t('empty')));
       } else if (pane === 'sources') {
         body = h('div', { style: { display: 'flex', flexDirection: 'column', gap: 6 } },
           collectLog,
@@ -507,14 +467,11 @@ window.__ModuleLoader__.load({
             setPane('feed');
           } }, t('submitItem')));
       } else {
-        body = h('div', { style: { display: 'flex', flexDirection: 'column', gap: 8, maxWidth: 560 } },
-          h('label', { style: cardS.meta }, t('serverUrl')),
-          h('div', { style: { display: 'flex', gap: 8 } },
-            h('input', { style: { ...cardS.input, flex: 1 }, placeholder: 'http://127.0.0.1:8788', value: store.serverUrl, onChange: (e) => update((s) => ({ ...s, serverUrl: e.target.value })) }),
-            h('button', { style: cardS.btn, disabled: busy, onClick: fetchServer }, busy ? '…' : t('pullNow'))),
-          fetchNote ? h('p', { style: cardS.meta }, fetchNote) : null,
-          store.serverUrl ? h('a', { href: store.serverUrl, target: '_blank', rel: 'noreferrer', style: cardS.link }, t('openInstance')) : null,
-          h('p', { style: cardS.meta }, t('bridgeNote')));
+        body = h('div', { style: { display: 'flex', flexDirection: 'column', gap: 8, maxWidth: 640 } },
+          h('p', { style: { margin: 0, fontSize: 13, lineHeight: 1.7, color: 'var(--dsw-alias-label-primary)' } }, t('aboutPipeline')),
+          h('p', { style: { margin: 0, fontSize: 12, lineHeight: 1.7, color: 'var(--dsw-alias-label-secondary)' } }, t('aboutData')),
+          h('p', { style: { margin: 0, fontSize: 12, color: 'var(--dsw-alias-label-secondary)' } }, t('aboutSelfhost')),
+          h('a', { href: REPO_URL, target: '_blank', rel: 'noreferrer', style: cardS.link }, t('aboutRepo')));
       }
 
       const statRow = h('div', { style: { display: 'flex', gap: 6, flexWrap: 'wrap' } },
@@ -539,48 +496,52 @@ window.__ModuleLoader__.load({
           () => ctx.locale.register('resourceRadar', {
             zh: {
               title: '资源雷达',
-              subtitle: '福利 · 好价 · 开源 · 资讯聚合工作台（参考 freebie-radar）',
+              subtitle: '福利 · 好价 · 开源 · 资讯聚合工作台（采集自动经 AI 筛选/定级/翻译）',
               navLabel: '资源雷达',
               ch_selectFreebie: '真福利精选', ch_allFreebie: '全部白嫖', ch_deals: '好价', ch_oss: '开源', ch_news: '重要新闻', ch_info: '行业资讯',
+              ch_favorites: '收藏',
               kind_freebie: '白嫖福利', kind_deal: '特价好价', kind_opensource: '开源项目', kind_news: '重要新闻', kind_info: '行业资讯', kind_noise: '噪音',
               ob_free: '直接白嫖', ob_conditional: '有条件', ob_lottery: '抽奖', ob_trial: '试用/Demo', ob_promo: '推广引流', ob_paid: '需付费',
               cat_ai: 'AI 额度', cat_vps: 'VPS/主机', cat_cloud: '云服务', cat_domain: '域名/建站', cat_opensource: '开源软件', cat_software: '软件授权', cat_dev: '开发/工程', cat_design: '设计/素材', cat_security: '安全/网络', cat_hardware: '硬件/数码', cat_media: '影音会员', cat_game: '游戏', cat_carpool: '拼车/合租', cat_trade: '二手/交易', cat_headline: '时政要闻', cat_world: '国际要闻', cat_finance: '经济/商业', cat_stock: '股票/市场', cat_tech: '科技动态', cat_news: '综合资讯', cat_goods: '实物/优惠', cat_offline: '实物福利', cat_invite: '邀请码', cat_edu: '教育/考试', cat_pan: '网盘资源', cat_course: '网课/教程', cat_other: '其它',
               search: '搜索标题…', allKinds: '全部形态', allCats: '全部分类', allObtains: '全部获取方式', showing: '共 {n} 条',
               viewCards: '卡片视图', viewCompact: '紧凑视图', empty: '当前筛选下没有条目。',
-              pane_feed: '信息流', pane_sources: '数据源', pane_blocks: '屏蔽词', pane_add: '手动添加', pane_settings: '设置',
+              favEmpty: '还没有收藏。点击条目上的 ☆ 收藏感兴趣的内容。',
+              favorited: '已收藏',
+              pane_feed: '信息流', pane_sources: '数据源', pane_blocks: '屏蔽词', pane_add: '手动添加', pane_about: '关于',
               favorite: '收藏', dismiss: '忽略', open: '打开原文', copy: '复制',
               enabled: '已启用', disabled: '已停用', add: '添加', remove: '移除',
               newSourceHint: '自定义 RSS 源名称…', blockHint: '添加屏蔽词（按标题匹配）…', blockEmpty: '暂无屏蔽词。',
               fTitle: '标题', fCode: '兑换码（可选）', fNote: '备注（可选）', manual: '手动录入', submitItem: '录入到雷达',
-              serverUrl: '自托管 freebie-radar 实例地址（尽力拉取 /api/items）', pullNow: '拉取', openInstance: '在浏览器打开实例',
-              fetched: '已拉取 {n} 条并替换本地信息流。', fetchFail: '拉取失败（接口路径或 CORS 不匹配），已保留本地数据。', setUrlFirst: '请先填写实例地址。',
-              bridgeNote: 'B 方案：Host 端确定性抓取（/radar-fetch），无 CORS 限制；AI 定级走 DSH 默认模型。',
-              aiReview: 'AI 定级', aiRunning: 'AI 处理中…', aiTip: '用 DSH 当前配置的模型给当前筛选下的条目做语义定级',
-              aiDone: 'AI 定级完成', aiNone: '当前筛选下没有待定级条目',
+              aboutPipeline: '工作流程：⟳ 采集 → Node 侧抓取 RSS（无 CORS）→ AI 自动筛选（淘汰噪音/软文）→ 语义定级（形态/分类/获取方式/星级）→ 标题与摘要翻译成中文 → 入库展示。',
+              aboutData: '所有数据保存在当前浏览器 localStorage，不写入会话或云端；清除浏览器数据即重置。',
+              aboutSelfhost: '需要定时自动采集、多路由推送、多用户等完整能力时，建议自托管 freebie-radar（见 README 链接）。',
+              aboutRepo: '项目主页与源码：github.com/loaf/dsh-resource-radar',
               collect: '采集', collecting: '采集中…', collectTip: '采集并经 AI 筛选/定级/翻译后入库', collectOne: '采集此源',
               noFeed: '未配置订阅地址（feed URL）', noEnabledSrc: '没有已启用的源', feedUrlHint: 'RSS / Atom 订阅地址…',
               kindHint: '默认形态', lastCollect: '上次采集新增', neverCollected: '尚未采集',
             },
             en: {
               title: 'Resource Radar',
-              subtitle: 'Freebie · deal · open source · news aggregation workbench (inspired by freebie-radar)',
+              subtitle: 'Freebie · deal · open source · news aggregation workbench (collection auto-triaged and translated by AI)',
               navLabel: 'Resource Radar',
               ch_selectFreebie: 'True freebies', ch_allFreebie: 'All freebies', ch_deals: 'Deals', ch_oss: 'Open source', ch_news: 'Headlines', ch_info: 'Insights',
+              ch_favorites: 'Favorites',
               kind_freebie: 'Freebie', kind_deal: 'Deal', kind_opensource: 'Open source', kind_news: 'News', kind_info: 'Insight', kind_noise: 'Noise',
               ob_free: 'Free', ob_conditional: 'Conditional', ob_lottery: 'Lottery', ob_trial: 'Trial/Demo', ob_promo: 'Promo', ob_paid: 'Paid',
               cat_ai: 'AI quota', cat_vps: 'VPS', cat_cloud: 'Cloud', cat_domain: 'Domain', cat_opensource: 'Open-source software', cat_software: 'Software license', cat_dev: 'Dev/Engineering', cat_design: 'Design assets', cat_security: 'Security', cat_hardware: 'Hardware', cat_media: 'Media membership', cat_game: 'Games', cat_carpool: 'Carpool', cat_trade: 'Second-hand', cat_headline: 'Top news', cat_world: 'World', cat_finance: 'Business', cat_stock: 'Markets', cat_tech: 'Tech', cat_news: 'General news', cat_goods: 'Physical deals', cat_offline: 'Physical freebies', cat_invite: 'Invite codes', cat_edu: 'Education', cat_pan: 'Cloud drive', cat_course: 'Courses', cat_other: 'Other',
               search: 'Search titles…', allKinds: 'All kinds', allCats: 'All categories', allObtains: 'All obtain types', showing: '{n} items',
               viewCards: 'Card view', viewCompact: 'Compact view', empty: 'No items under the current filters.',
-              pane_feed: 'Feed', pane_sources: 'Sources', pane_blocks: 'Block list', pane_add: 'Add item', pane_settings: 'Settings',
-              favorite: 'Favorite', dismiss: 'Dismiss', open: 'Open', copy: 'Copy',
+              favEmpty: 'No favorites yet. Click the ☆ on an item to save it.',
+              favorited: 'Favorited',
+              pane_feed: 'Feed', pane_sources: 'Sources', pane_blocks: 'Block list', pane_add: 'Add item', pane_about: 'About',
+              favorite: 'Favorite', dismiss: 'Dismiss', open: 'Open source', copy: 'Copy',
               enabled: 'Enabled', disabled: 'Disabled', add: 'Add', remove: 'Remove',
               newSourceHint: 'Custom RSS source name…', blockHint: 'Add a block word (matches titles)…', blockEmpty: 'No block words yet.',
               fTitle: 'Title', fCode: 'Redeem code (optional)', fNote: 'Note (optional)', manual: 'Manual', submitItem: 'Add to radar',
-              serverUrl: 'Self-hosted freebie-radar instance URL (best-effort /api/items pull)', pullNow: 'Pull', openInstance: 'Open instance in browser',
-              fetched: 'Pulled {n} items and replaced the local feed.', fetchFail: 'Pull failed (endpoint or CORS mismatch); local data kept.', setUrlFirst: 'Enter the instance URL first.',
-              bridgeNote: 'Option B: deterministic Host-side fetch via /radar-fetch (no CORS). AI triage runs on the DSH default model.',
-              aiReview: 'AI triage', aiRunning: 'AI working…', aiTip: 'Classify filtered items with the DSH-configured model',
-              aiDone: 'AI triage done', aiNone: 'No untriaged items under current filters',
+              aboutPipeline: 'Pipeline: ⟳ collect → Node-side RSS fetch (no CORS) → AI auto-triage (drops noise/ads) → semantic classification (kind/category/obtain/stars) → titles & summaries translated to Chinese → ingested for display.',
+              aboutData: 'All data lives in this browser localStorage — nothing is written to sessions or the cloud; clearing browser data resets it.',
+              aboutSelfhost: 'For scheduled collection, push routing and multi-user support, self-host freebie-radar (see the README link).',
+              aboutRepo: 'Project home & source: github.com/loaf/dsh-resource-radar',
               collect: 'Collect', collecting: 'Collecting…', collectTip: 'Collect, then AI-triage and translate before ingest', collectOne: 'Collect this source',
               noFeed: 'No feed URL configured', noEnabledSrc: 'No enabled sources', feedUrlHint: 'RSS / Atom feed URL…',
               kindHint: 'Default kind', lastCollect: 'Last collect added', neverCollected: 'Not collected yet',
