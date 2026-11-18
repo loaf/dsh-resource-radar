@@ -202,6 +202,7 @@ window.__ModuleLoader__.load({
   border-color:var(--dsw-alias-border-l2);font-weight:500;cursor:default;}
 .rr-read:hover{background:transparent;color:var(--dsw-alias-label-secondary);
   box-shadow:none;transform:none;}
+@keyframes rr-pulse{0%,100%{opacity:1}50%{opacity:.45}}
 `;
 
     function useStore() {
@@ -297,6 +298,7 @@ window.__ModuleLoader__.load({
       const [pane, setPane] = useState('feed');
       const [busySrc, setBusySrc] = useState(null);
       const [log, setLog] = useState([]);
+      const [chipOpen, setChipOpen] = useState(false);
 
       const isFavChannel = channel === 'favorites';
       const ch = CHANNELS[channel];
@@ -434,6 +436,28 @@ window.__ModuleLoader__.load({
         });
       }, []);
 
+      const statusChip = h('div', { style: { position: 'relative' } },
+        (() => {
+          const last = log[0];
+          const busy = !!busySrc;
+          const hasFail = log.some((e) => e.fail);
+          const base = {
+            border: 'none', background: 'transparent', cursor: busy ? 'wait' : 'pointer',
+            fontSize: 12, borderRadius: 999, padding: '3px 10px',
+            color: busy ? 'var(--dsw-alias-brand-primary)' : (hasFail ? 'var(--dsw-alias-state-error-primary)' : 'var(--dsw-alias-state-success-primary)'),
+            opacity: busy ? 1 : 0.75, whiteSpace: 'nowrap',
+            animation: busy ? 'rr-pulse 1.2s ease-in-out infinite' : 'none',
+          };
+          return h('button', { style: base, title: t('logTitle'), onClick: () => setChipOpen(!chipOpen) },
+            busy ? '⏳ ' + t('refreshing') : (last ? (hasFail ? '⚠ ' : '✓ ') + (last.name.split(' [')[0]) + ' +' + last.added : '✓ ' + t('idle')));
+        })(),
+        chipOpen && !busySrc ? h('div', { style: { position: 'absolute', top: '100%', right: 0, zIndex: 20, marginTop: 6, padding: '8px 12px', borderRadius: 10, border: '1px solid var(--dsw-alias-border-l2)', background: 'var(--dsw-alias-bg-overlay)', boxShadow: '0 6px 20px rgba(0,0,0,.15)', minWidth: 260, display: 'flex', flexDirection: 'column', gap: 3 } },
+          log.length
+            ? log.map((e, i) => h('div', { key: i, style: { fontSize: 12, color: e.fail ? 'var(--dsw-alias-state-error-primary)' : 'var(--dsw-alias-state-success-primary)', whiteSpace: 'nowrap' } },
+              (e.fail ? '✕ ' : '✓ ') + e.name + ' · +' + e.added + ' · ' + e.at))
+            : h('div', { style: { ...cardS.meta } }, t('noLog'))
+        ) : null);
+
       const channelTabs = Object.keys(CHANNELS).map((key) =>
         h('button', { key, style: channel === key ? cardS.tabOn : cardS.tab, onClick: () => setChannel(key) }, t('ch_' + key)));
 
@@ -449,30 +473,24 @@ window.__ModuleLoader__.load({
           h('option', { value: '' }, t('allObtains')), OBTAINS.map((o) => h('option', { key: o, value: o }, t('ob_' + o)))) : null,
         h('span', { style: cardS.meta }, t('showing').replace('{n}', String(items.length))),
         h('span', { style: { marginLeft: 'auto' } }),
+        statusChip,
         h('button', { style: cardS.btn, onClick: () => update((s) => ({ ...s, view: s.view === 'compact' ? 'cards' : 'compact' })) },
           store.view === 'compact' ? '▦ ' + t('viewCards') : '☰ ' + t('viewCompact')),
         h('button', { style: cardS.btn, title: t('collectTip'), onClick: collectEnabled },
           busySrc ? '⏳ ' + t('collecting') : '⟳ ' + t('collect')));
-
-      const collectLog = log.length
-        ? h('div', { style: { margin: '8px 0', display: 'flex', flexDirection: 'column', gap: 2 } },
-          log.map((e, i) => h('div', { key: i, style: { ...cardS.meta, color: e.fail ? 'var(--dsw-alias-state-error-primary)' : 'var(--dsw-alias-state-success-primary)' } },
-            (e.fail ? '✕ ' : '✓ ') + e.name + ' · +' + e.added + ' · ' + e.at)))
-        : null;
 
       const paneTabs = ['feed', 'sources', 'blocks', 'about'].map((key) =>
         h('button', { key, style: pane === key ? cardS.tabOn : cardS.tab, onClick: () => setPane(key) }, t('pane_' + key)));
 
       let body = null;
       if (pane === 'feed') {
-        body = h('div', null, collectLog,
+        body = h('div', null,
           items.length
             ? h('div', { style: { display: store.view === 'compact' ? 'flex' : 'grid', flexDirection: 'column', gap: 8, gridTemplateColumns: store.view === 'compact' ? undefined : 'repeat(auto-fill, minmax(320px, 1fr))' } },
               items.map((it) => h(ItemCard, { key: it.id, t, item: it, view: store.view, onFav: toggleFav, onRead: markRead })))
             : h('p', { style: cardS.meta }, isFavChannel ? t('favEmpty') : t('empty')));
       } else if (pane === 'sources') {
         body = h('div', { style: { display: 'flex', flexDirection: 'column', gap: 6 } },
-          collectLog,
           store.sources.map((src) => h('div', { key: src.id, style: { ...cardS.card, gap: 8, padding: '10px 12px' } },
             h('div', { style: { display: 'flex', alignItems: 'center', gap: 10 } },
               h('span', { style: { flex: 1, fontSize: 13, color: 'var(--dsw-alias-label-primary)' } }, src.name),
@@ -568,7 +586,7 @@ window.__ModuleLoader__.load({
               collect: '刷新', collecting: '刷新中…', collectTip: '刷新所有已启用源（AI 筛选/定级/翻译后更新）', collectOne: '刷新此源',
               noFeed: '未配置订阅地址（feed URL）', noEnabledSrc: '没有已启用的源', feedUrlHint: 'RSS / Atom 订阅地址…',
               kindHint: '默认形态', lastCollect: '上次刷新新增', neverCollected: '尚未刷新', removeSrc: '删除此源',
-              opened: '已读',
+              opened: '已读', logTitle: '刷新日志（点击展开/收起）', refreshing: '刷新中…', idle: '尚未刷新', noLog: '暂无刷新记录',
             },
             en: {
               title: 'Resource Radar',
@@ -594,7 +612,7 @@ window.__ModuleLoader__.load({
               collect: 'Refresh', collecting: 'Refreshing…', collectTip: 'Refresh every enabled source (AI-triage and translate before ingest)', collectOne: 'Refresh this source',
               noFeed: 'No feed URL configured', noEnabledSrc: 'No enabled sources', feedUrlHint: 'RSS / Atom feed URL…',
               kindHint: 'Default kind', lastCollect: 'Last refresh added', neverCollected: 'Not refreshed yet', removeSrc: 'Delete this source',
-              opened: 'Read',
+              opened: 'Read', logTitle: 'Refresh log (click to toggle)', refreshing: 'Refreshing…', idle: 'Not refreshed yet', noLog: 'No refresh log yet',
             },
           }),
           'resource-radar: dictionary',
