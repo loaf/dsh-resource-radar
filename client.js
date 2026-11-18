@@ -299,6 +299,7 @@ window.__ModuleLoader__.load({
       const [busySrc, setBusySrc] = useState(null);
       const [log, setLog] = useState([]);
       const [chipOpen, setChipOpen] = useState(false);
+      const [filterOpen, setFilterOpen] = useState(false);
 
       const isFavChannel = channel === 'favorites';
       const ch = CHANNELS[channel];
@@ -467,19 +468,27 @@ window.__ModuleLoader__.load({
             : h('div', { style: { ...cardS.meta } }, t('noLog'))
         ) : null);
 
-      const channelTabs = Object.keys(CHANNELS).map((key) =>
-        h('button', { key, style: channel === key ? cardS.tabOn : cardS.tab, onClick: () => setChannel(key) }, t('ch_' + key)));
+      const channelTabs = [
+        ...Object.keys(CHANNELS).map((key) => channelBtn(key, t('ch_' + key))),
+        channelBtn('favorites', '★ ' + t('ch_favorites')),
+      ];
 
-      const filterBar = h('div', { style: { display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' } },
-        h('button', { key: 'favorites', style: channel === 'favorites' ? cardS.tabOn : cardS.tab, onClick: () => setChannel(isFavChannel ? 'selectFreebie' : 'favorites') },
-          '★ ' + t('ch_favorites') + ' ' + favCount),
+      const filterBar = h('div', { style: { display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center', position: 'relative' } },
         h('input', { style: { ...cardS.input, minWidth: 180 }, placeholder: t('search'), value: q, onChange: (e) => setQ(e.target.value) }),
-        !isFavChannel ? h('select', { style: cardS.select, value: kindF, onChange: (e) => setKindF(e.target.value) },
-          h('option', { value: '' }, t('allKinds')), KINDS.map((k) => h('option', { key: k, value: k }, t('kind_' + k)))) : null,
-        !isFavChannel ? h('select', { style: cardS.select, value: catF, onChange: (e) => setCatF(e.target.value) },
-          h('option', { value: '' }, t('allCats')), CATEGORIES.map((c) => h('option', { key: c, value: c }, t('cat_' + c)))) : null,
-        !isFavChannel ? h('select', { style: cardS.select, value: obF, onChange: (e) => setObF(e.target.value) },
-          h('option', { value: '' }, t('allObtains')), OBTAINS.map((o) => h('option', { key: o, value: o }, t('ob_' + o)))) : null,
+        h('button', { style: { ...cardS.btn, position: 'relative' }, onClick: () => setFilterOpen(!filterOpen) },
+          '⚙ ' + t('filter') + (activeFilters ? ' (' + activeFilters + ')' : '')),
+        !isFavChannel && filterOpen ? h('div', { style: { position: 'absolute', top: '100%', left: 0, zIndex: 20, marginTop: 6, padding: '10px 12px', borderRadius: 10, border: '1px solid var(--dsw-alias-border-l2)', background: 'var(--dsw-alias-bg-overlay)', boxShadow: '0 6px 20px rgba(0,0,0,.15)', display: 'flex', flexDirection: 'column', gap: 8, minWidth: 260 } },
+          h('label', { style: { display: 'flex', flexDirection: 'column', gap: 3, fontSize: 12, color: 'var(--dsw-alias-label-secondary)' } }, t('allKinds'),
+            h('select', { style: cardS.select, value: kindF, onChange: (e) => setKindF(e.target.value) },
+              h('option', { value: '' }, t('allKinds')), KINDS.map((k) => h('option', { key: k, value: k }, t('kind_' + k))))),
+          h('label', { style: { display: 'flex', flexDirection: 'column', gap: 3, fontSize: 12, color: 'var(--dsw-alias-label-secondary)' } }, t('allCats'),
+            h('select', { style: cardS.select, value: catF, onChange: (e) => setCatF(e.target.value) },
+              h('option', { value: '' }, t('allCats')), CATEGORIES.map((c) => h('option', { key: c, value: c }, t('cat_' + c))))),
+          h('label', { style: { display: 'flex', flexDirection: 'column', gap: 3, fontSize: 12, color: 'var(--dsw-alias-label-secondary)' } }, t('allObtains'),
+            h('select', { style: cardS.select, value: obF, onChange: (e) => setObF(e.target.value) },
+              h('option', { value: '' }, t('allObtains')), OBTAINS.map((o) => h('option', { key: o, value: o }, t('ob_' + o))))),
+          activeFilters ? h('button', { style: cardS.btn, onClick: () => { setKindF(''); setCatF(''); setObF(''); } }, t('clearFilters')) : null,
+        ) : null,
         h('span', { style: cardS.meta }, t('showing').replace('{n}', String(items.length))),
         h('span', { style: { marginLeft: 'auto' } }),
         statusChip,
@@ -490,6 +499,29 @@ window.__ModuleLoader__.load({
 
       const paneTabs = ['feed', 'sources', 'blocks', 'about'].map((key) =>
         h('button', { key, style: pane === key ? cardS.tabOn : cardS.tab, onClick: () => setPane(key) }, t('pane_' + key)));
+
+      const activeFilters = [kindF, catF, obF].filter(Boolean).length;
+      const statRow = KINDS.map((k) => ({ k, n: counts[k] || 0 }));
+      const channelBtn = (key, label) =>
+        h('button', {
+          key, style: {
+            position: 'relative', border: 'none', background: 'transparent', cursor: 'pointer',
+            padding: '5px 12px', fontSize: 13, borderRadius: 8,
+            color: channel === key ? 'var(--dsw-alias-brand-primary)' : 'var(--dsw-alias-label-secondary)',
+            fontWeight: channel === key ? 600 : 400,
+            background: channel === key ? 'color-mix(in srgb, var(--dsw-alias-brand-primary) 18%, transparent)' : 'transparent',
+          }, onClick: () => setChannel(key),
+        },
+          label,
+          statRow.filter((s) => (key === 'selectFreebie' ? s.k === 'freebie' : key === 'allFreebie' ? s.k === 'freebie' : key === 'deals' ? s.k === 'deal' : key === 'oss' ? s.k === 'opensource' : key === 'news' ? s.k === 'news' : key === 'info' ? s.k === 'info' : false)).length
+            ? null
+            : null,
+          (() => {
+            const map = { selectFreebie: 'freebie', allFreebie: 'freebie', deals: 'deal', oss: 'opensource', news: 'news', info: 'info' };
+            const n = key === 'favorites' ? favCount : counts[map[key]] || 0;
+            if (!n) return null;
+            return h('span', { style: { marginLeft: 6, fontSize: 11, padding: '0 6px', borderRadius: 999, background: 'color-mix(in srgb, var(--dsw-alias-brand-primary) 15%, transparent)', color: channel === key ? 'var(--dsw-alias-brand-primary)' : 'var(--dsw-alias-label-secondary)' } }, String(n));
+          })());
 
       let body = null;
       if (pane === 'feed') {
@@ -550,19 +582,17 @@ window.__ModuleLoader__.load({
           h('a', { href: REPO_URL, target: '_blank', rel: 'noreferrer', style: cardS.link }, t('aboutRepo')));
       }
 
-      const statRow = h('div', { style: { display: 'flex', gap: 6, flexWrap: 'wrap' } },
-        KINDS.map((k) => h(Badge, { key: k, text: (KIND_ICON[k] || '•') + ' ' + t('kind_' + k) + ' ' + counts[k], hi: k === 'freebie' })));
-
-      return h('div', { style: { height: '100%', overflowY: 'auto', padding: '20px 28px 32px', boxSizing: 'border-box', background: 'var(--dsw-alias-bg-base)', color: 'var(--dsw-alias-label-primary)' } },
+      return h('div', { style: { height: '100%', overflowY: 'auto', padding: '14px 28px 28px', boxSizing: 'border-box', background: 'var(--dsw-alias-bg-base)', color: 'var(--dsw-alias-label-primary)' } },
         h('style', null, OPEN_BTN_CSS),
-        h('h1', { style: { margin: '0 0 4px', fontSize: 20, display: 'flex', alignItems: 'center', gap: 8 } }, '📡 ' + t('title')),
-        h('p', { style: { margin: '0 0 16px', fontSize: 12, color: 'var(--dsw-alias-label-secondary)' } }, t('subtitle')),
-        h('div', { style: { display: 'flex', gap: 4, flexWrap: 'wrap', marginBottom: 12 } }, channelTabs),
-        statRow,
-        h('div', { style: { height: 12 } }),
+        h('div', { style: { display: 'flex', alignItems: 'baseline', gap: 10, marginBottom: 10 } },
+          h('h1', { style: { margin: 0, fontSize: 17, display: 'flex', alignItems: 'center', gap: 6 } }, '📡 ' + t('title')),
+          h('span', { style: { fontSize: 12, color: 'var(--dsw-alias-label-secondary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' } }, t('subtitle'))),
+        h('div', { style: { display: 'flex', gap: 2, flexWrap: 'wrap', alignItems: 'center', borderBottom: '1px solid var(--dsw-alias-border-l1)', paddingBottom: 8, marginBottom: 8 } },
+          channelTabs,
+          h('span', { style: { width: 1, height: 18, background: 'var(--dsw-alias-border-l2)', margin: '0 6px' } }),
+          paneTabs),
         filterBar,
-        h('div', { style: { height: 12 } }),
-        h('div', { style: { display: 'flex', gap: 4, borderTop: '1px solid var(--dsw-alias-border-l1)', borderBottom: '1px solid var(--dsw-alias-border-l1)', padding: '6px 0', marginBottom: 14 } }, paneTabs),
+        h('div', { style: { height: 10 } }),
         body);
     }
 
@@ -596,6 +626,7 @@ window.__ModuleLoader__.load({
               noFeed: '未配置订阅地址（feed URL）', noEnabledSrc: '没有已启用的源', feedUrlHint: 'RSS / Atom 订阅地址…',
               kindHint: '默认形态', lastCollect: '上次刷新新增', neverCollected: '尚未刷新', removeSrc: '删除此源',
               opened: '已读', logTitle: '刷新日志（点击展开/收起）', refreshing: '刷新中…', idle: '尚未刷新', noLog: '暂无刷新记录',
+              filter: '过滤', clearFilters: '清除全部筛选',
             },
             en: {
               title: 'Resource Radar',
@@ -622,6 +653,7 @@ window.__ModuleLoader__.load({
               noFeed: 'No feed URL configured', noEnabledSrc: 'No enabled sources', feedUrlHint: 'RSS / Atom feed URL…',
               kindHint: 'Default kind', lastCollect: 'Last refresh added', neverCollected: 'Not refreshed yet', removeSrc: 'Delete this source',
               opened: 'Read', logTitle: 'Refresh log (click to toggle)', refreshing: 'Refreshing…', idle: 'Not refreshed yet', noLog: 'No refresh log yet',
+              filter: 'Filter', clearFilters: 'Clear filters',
             },
           }),
           'resource-radar: dictionary',
