@@ -468,6 +468,26 @@ window.__ModuleLoader__.load({
             : h('div', { style: { ...cardS.meta } }, t('noLog'))
         ) : null);
 
+      const activeFilters = [kindF, catF, obF].filter(Boolean).length;
+      const statRow = KINDS.map((k) => ({ k, n: counts[k] || 0 }));
+      const channelBtn = (key, label) =>
+        h('button', {
+          key, style: {
+            position: 'relative', border: 'none', background: 'transparent', cursor: 'pointer',
+            padding: '5px 12px', fontSize: 13, borderRadius: 8,
+            color: channel === key ? 'var(--dsw-alias-brand-primary)' : 'var(--dsw-alias-label-secondary)',
+            fontWeight: channel === key ? 600 : 400,
+            background: channel === key ? 'color-mix(in srgb, var(--dsw-alias-brand-primary) 18%, transparent)' : 'transparent',
+          }, onClick: () => setChannel(key),
+        },
+          label,
+          (() => {
+            const map = { selectFreebie: 'freebie', allFreebie: 'freebie', deals: 'deal', oss: 'opensource', news: 'news', info: 'info' };
+            const n = key === 'favorites' ? favCount : counts[map[key]] || 0;
+            if (!n) return null;
+            return h('span', { style: { marginLeft: 6, fontSize: 11, padding: '0 6px', borderRadius: 999, background: 'color-mix(in srgb, var(--dsw-alias-brand-primary) 15%, transparent)', color: channel === key ? 'var(--dsw-alias-brand-primary)' : 'var(--dsw-alias-label-secondary)' } }, String(n));
+          })());
+
       const channelTabs = [
         ...Object.keys(CHANNELS).map((key) => channelBtn(key, t('ch_' + key))),
         channelBtn('favorites', '★ ' + t('ch_favorites')),
@@ -476,8 +496,7 @@ window.__ModuleLoader__.load({
       const filterBar = h('div', { style: { display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center', position: 'relative' } },
         h('input', { style: { ...cardS.input, minWidth: 180 }, placeholder: t('search'), value: q, onChange: (e) => setQ(e.target.value) }),
         h('button', { style: { ...cardS.btn, position: 'relative' }, onClick: () => setFilterOpen(!filterOpen) },
-          '⚙ ' + t('filter') + (activeFilters ? ' (' + activeFilters + ')' : '')),
-        !isFavChannel && filterOpen ? h('div', { style: { position: 'absolute', top: '100%', left: 0, zIndex: 20, marginTop: 6, padding: '10px 12px', borderRadius: 10, border: '1px solid var(--dsw-alias-border-l2)', background: 'var(--dsw-alias-bg-overlay)', boxShadow: '0 6px 20px rgba(0,0,0,.15)', display: 'flex', flexDirection: 'column', gap: 8, minWidth: 260 } },
+          '⚙ ' + t('filter') + (activeFilters ? ' (' + activeFilters + ')' : '')),        !isFavChannel && filterOpen ? h('div', { style: { position: 'absolute', top: '100%', left: 0, zIndex: 20, marginTop: 6, padding: '10px 12px', borderRadius: 10, border: '1px solid var(--dsw-alias-border-l2)', background: 'var(--dsw-alias-bg-overlay)', boxShadow: '0 6px 20px rgba(0,0,0,.15)', display: 'flex', flexDirection: 'column', gap: 8, minWidth: 260 } },
           h('label', { style: { display: 'flex', flexDirection: 'column', gap: 3, fontSize: 12, color: 'var(--dsw-alias-label-secondary)' } }, t('allKinds'),
             h('select', { style: cardS.select, value: kindF, onChange: (e) => setKindF(e.target.value) },
               h('option', { value: '' }, t('allKinds')), KINDS.map((k) => h('option', { key: k, value: k }, t('kind_' + k))))),
@@ -499,29 +518,6 @@ window.__ModuleLoader__.load({
 
       const paneTabs = ['feed', 'sources', 'blocks', 'about'].map((key) =>
         h('button', { key, style: pane === key ? cardS.tabOn : cardS.tab, onClick: () => setPane(key) }, t('pane_' + key)));
-
-      const activeFilters = [kindF, catF, obF].filter(Boolean).length;
-      const statRow = KINDS.map((k) => ({ k, n: counts[k] || 0 }));
-      const channelBtn = (key, label) =>
-        h('button', {
-          key, style: {
-            position: 'relative', border: 'none', background: 'transparent', cursor: 'pointer',
-            padding: '5px 12px', fontSize: 13, borderRadius: 8,
-            color: channel === key ? 'var(--dsw-alias-brand-primary)' : 'var(--dsw-alias-label-secondary)',
-            fontWeight: channel === key ? 600 : 400,
-            background: channel === key ? 'color-mix(in srgb, var(--dsw-alias-brand-primary) 18%, transparent)' : 'transparent',
-          }, onClick: () => setChannel(key),
-        },
-          label,
-          statRow.filter((s) => (key === 'selectFreebie' ? s.k === 'freebie' : key === 'allFreebie' ? s.k === 'freebie' : key === 'deals' ? s.k === 'deal' : key === 'oss' ? s.k === 'opensource' : key === 'news' ? s.k === 'news' : key === 'info' ? s.k === 'info' : false)).length
-            ? null
-            : null,
-          (() => {
-            const map = { selectFreebie: 'freebie', allFreebie: 'freebie', deals: 'deal', oss: 'opensource', news: 'news', info: 'info' };
-            const n = key === 'favorites' ? favCount : counts[map[key]] || 0;
-            if (!n) return null;
-            return h('span', { style: { marginLeft: 6, fontSize: 11, padding: '0 6px', borderRadius: 999, background: 'color-mix(in srgb, var(--dsw-alias-brand-primary) 15%, transparent)', color: channel === key ? 'var(--dsw-alias-brand-primary)' : 'var(--dsw-alias-label-secondary)' } }, String(n));
-          })());
 
       let body = null;
       if (pane === 'feed') {
