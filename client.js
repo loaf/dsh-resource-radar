@@ -71,10 +71,7 @@ window.__ModuleLoader__.load({
       { id: 's15', title: '求推荐一台 300 元以内的软由', kind: 'noise', category: 'hardware', obtain: 'free', quality: 1, source: 'NodeSeek 福利/拼车', url: '', note: '纯求助，建议屏蔽', time: '2026-11-16', code: '' },
     ];
 
-    let autoCollectDone = false;
-
-    function loadStore() {
-      let firstRun = true;
+    function loadStore() {      let firstRun = true;
       try {
         const raw = localStorage.getItem(STORE_KEY);
         if (raw) {
@@ -178,7 +175,6 @@ window.__ModuleLoader__.load({
       badgeHi: { display: 'inline-block', padding: '1px 8px', borderRadius: 999, fontSize: 11, background: 'color-mix(in srgb, var(--dsw-alias-state-success-primary) 18%, transparent)', color: 'var(--dsw-alias-state-success-primary)', whiteSpace: 'nowrap' },
       btn: { border: '1px solid var(--dsw-alias-border-l2)', background: 'transparent', color: 'var(--dsw-alias-label-primary)', borderRadius: 8, padding: '3px 10px', fontSize: 12, cursor: 'pointer' },
       btnFav: { border: '1px solid var(--dsw-alias-border-l2)', background: 'transparent', color: 'var(--dsw-alias-state-warn-primary)', borderRadius: 8, padding: '3px 10px', fontSize: 12, cursor: 'pointer' },
-      openBtn: { display: 'inline-block', border: '2px solid var(--dsw-alias-brand-primary)', background: 'var(--dsw-alias-brand-primary)', color: 'var(--dsw-alias-bg-base)', borderRadius: 8, padding: '5px 16px', fontSize: 13, fontWeight: 700, textDecoration: 'none', cursor: 'pointer' },
       input: { border: '1px solid var(--dsw-alias-border-l2)', background: 'var(--dsw-alias-bg-base)', color: 'var(--dsw-alias-label-primary)', borderRadius: 8, padding: '4px 8px', fontSize: 12 },
       select: { border: '1px solid var(--dsw-alias-border-l2)', background: 'var(--dsw-alias-bg-base)', color: 'var(--dsw-alias-label-primary)', borderRadius: 8, padding: '4px 6px', fontSize: 12 },
       tab: { border: 'none', background: 'transparent', color: 'var(--dsw-alias-label-secondary)', borderRadius: 8, padding: '5px 12px', fontSize: 13, cursor: 'pointer' },
@@ -375,7 +371,7 @@ window.__ModuleLoader__.load({
       const collectSource = useCallback(async (source) => {
         if (!source.feedUrl) return { ok: false, added: 0, error: t('noFeed') };
         setBusySrc(source.id);
-        let added = 0, dropped = 0, aiFailed = false;
+        let added = 0, dropped = 0;
         try {
           const fresh = await fetchFeed(source);
           const triaged = [];
@@ -615,7 +611,7 @@ window.__ModuleLoader__.load({
               enabled: '已启用', disabled: '已停用', add: '添加', remove: '移除',
               newSourceHint: '自定义 RSS 源名称…', blockHint: '添加屏蔽词（按标题匹配）…', blockEmpty: '暂无屏蔽词。',
               aboutPipeline: '工作流程：⟳ 采集 → Node 侧抓取 RSS（无 CORS）→ AI 自动筛选（淘汰噪音/软文）→ 语义定级（形态/分类/获取方式/星级）→ 标题与摘要翻译成中文 → 入库展示。',
-              aboutData: '所有数据保存在当前浏览器 localStorage，不写入会话或云端；清除浏览器数据即重置。',
+              aboutData: '数据持久化在 DSH profile 目录的 resource-radar-data.json（Host 端 /radar-store），localStorage 仅作缓存；可直接备份/编辑该文件。',
               aboutSelfhost: '需要定时自动采集、多路由推送、多用户等完整能力时，建议自托管 freebie-radar（见 README 链接）。',
               aboutRepo: '项目主页与源码：github.com/loaf/dsh-resource-radar',
               collect: '刷新', collecting: '刷新中…', collectTip: '刷新所有已启用源（AI 筛选/定级/翻译后更新）', collectOne: '刷新此源',
@@ -642,7 +638,7 @@ window.__ModuleLoader__.load({
               enabled: 'Enabled', disabled: 'Disabled', add: 'Add', remove: 'Remove',
               newSourceHint: 'Custom RSS source name…', blockHint: 'Add a block word (matches titles)…', blockEmpty: 'No block words yet.',
               aboutPipeline: 'Pipeline: ⟳ collect → Node-side RSS fetch (no CORS) → AI auto-triage (drops noise/ads) → semantic classification (kind/category/obtain/stars) → titles & summaries translated to Chinese → ingested for display.',
-              aboutData: 'All data lives in this browser localStorage — nothing is written to sessions or the cloud; clearing browser data resets it.',
+              aboutData: 'Data persists to resource-radar-data.json in the DSH profile directory (Host /radar-store); localStorage is only a cache — back up or edit that file directly.',
               aboutSelfhost: 'For scheduled collection, push routing and multi-user support, self-host freebie-radar (see the README link).',
               aboutRepo: 'Project home & source: github.com/loaf/dsh-resource-radar',
               collect: 'Refresh', collecting: 'Refreshing…', collectTip: 'Refresh every enabled source (AI-triage and translate before ingest)', collectOne: 'Refresh this source',

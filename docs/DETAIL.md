@@ -1,23 +1,40 @@
 # Resource Radar（资源雷达）
 
-左侧导航新增「资源雷达」入口，点开后在中央面板呈现一个参考 [ZiChuanLan/freebie-radar](https://github.com/ZiChuanLan/freebie-radar) 的福利/资讯聚合工作台。
+左侧导航新增「资源雷达」入口，点开后在中央面板呈现一个参考 [ZiChuanLan/freebie-radar](https://github.com/ZiChuanLan/freebie-radar) 的福利/资讯聚合工作台，采集结果**自动经 AI 筛选、定级并翻译成中文**后展示。
+
+## 工作流程
+
+```
+⟳ 刷新 → Node 侧抓取 RSS（Host 端 /radar-fetch，无 CORS）
+       → 与已入库条目去重（URL/标题键），只送新条目
+       → AI 定级（DSH 配置的默认模型，8 条/批 × 3 路并发）：
+           keep   筛选（噪音/灌水/软文淘汰，不展示）
+           kind   六类形态分流到频道
+           category 27 类 / obtain 6 级获取方式 / quality 1–5 星
+           titleZh / noteZh  标题与摘要翻译成中文
+           reason 30 字中文理由
+       → 入库展示（未读在前，已读置灰沉底）
+```
 
 ## 功能
 
-- **兴趣频道**：真福利精选 / 全部白嫖 / 好价 / 开源 / 重要新闻 / 行业资讯，一键切换。
-- **三级筛选**：内容形态（freebie / deal / opensource / news / info / noise）× 垂直分类 × 获取方式（free / conditional / lottery / trial / promo / paid），外加关键词搜索。
-- **屏蔽词防火墙**：命中屏蔽词的条目在列表中直接隐藏，与管理区共享一份词库。
-- **数据源管理**：内置精选源清单（可启停），新增自定义 RSS 源。
-- **条目操作**：收藏、忽略（学习进屏蔽样本）、复制链接、打开原文。
-- **手动采集**：工作台顶部「⟳ 采集」按钮一键采集所有已启用源；「数据源」页可对单个源点「⟳ 采集」，并为每个源配置 RSS/Atom 订阅地址与默认形态。采集在浏览器端直接抓取，直连失败时自动经公共 CORS 中转重试；结果按 URL/标题去重合并入信息流，并在面板里显示采集日志与每个源的上次结果。
-- **实例桥接（尽力而为）**：在「设置」里填自托管 freebie-radar 地址后，可尝试拉取 `/api/items` 的条目并打开实例页面；拉取失败时自动回落本地数据。
+- **兴趣频道**：真福利精选 / 全部白嫖 / 好价 / 开源 / 重要新闻 / 行业资讯 + ★ 收藏，频道名上带实时计数。
+- **三级筛选**：内容形态 × 垂直分类 × 获取方式，收在「⚙ 过滤」弹层里（按钮显示已启用筛选数）。
+- **屏蔽词防火墙**：命中屏蔽词的条目在列表中直接隐藏。
+- **数据源管理**：内置精选源清单（可启停 / 删除），可编辑订阅地址、新增自定义 RSS 源、单独刷新某个源。
+- **条目操作**：☆ 收藏（「★ 收藏」频道聚合）、点击打开原文自动标记已读（置灰、排序沉底、按钮变「已读」）、复制兑换码。
+- **刷新状态胶囊**：工具栏右侧一枚小胶囊（刷新中脉冲动画 / 完成摘要 / 失败警示），点击弹出最近 8 条刷新记录，不占用内容区。
+- **首次使用**：无数据时打开自动执行一轮刷新，完成后清除内置演示条目。
 
 ## 数据存放
 
-条目、数据源与屏蔽词保存在当前浏览器的 `localStorage`（键 `resource-radar.v1`），不写入会话日志或 Host 配置。清除浏览器数据即重置。
+- 持久化文件：`<DSH profile 目录>/resource-radar-data.json`（Host 端 `/radar-store` 路由读写），条目/收藏/屏蔽词/自定义源都在其中，可直接备份或迁移。
+- `localStorage` 仅作缓存兜底（Host 路由不可用时仍可工作），以文件内容为准。
+- AI 定级不落盘队列：每次刷新即时批量处理，批间失败的新条目按源默认分类入库，可用「过滤」人工复核。
 
 ## 已知限制
 
-- 采集由 Host 半的 `/radar-fetch` 路由在 Node 侧发起（无 CORS）。**受 Cloudflare 保护的站点**（如 LINUX DO、NodeSeek）会返回 403「Just a moment」，需要另行部署 FlareSolverr 才能采集；这些源默认停用并在名称中标注。
-- 默认启用的可用源：V2EX、GamerPower、SharewareOnSale、Reddit r/freebies、少数派、Solidot、Hacker News。
-- 第一版不含定时采集、AI 语义定级与 Telegram 推送；如需完整能力可自托管 freebie-radar 并在本插件「设置」中连接实例。
+- **Cloudflare 防护站点**（LINUX DO、NodeSeek）：Node 直连返回 403「Just a moment」，需另行部署 FlareSolverr；这些源默认停用并在名称中标注。
+- 默认启用源：V2EX、GamerPower、SharewareOnSale、Reddit r/freebies、少数派、Solidot、Hacker News。
+- AI 定级依赖 DSH 中配置的模型（优先用默认模型设置），单次刷新的耗时与费用随新条目数线性增长；RSS 抓取上限每源 40 条。
+- 不含定时自动刷新、推送路由与多用户；需要完整能力请自托管 freebie-radar（见 README）。

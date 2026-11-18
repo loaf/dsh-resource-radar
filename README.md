@@ -1,60 +1,62 @@
 # dsh-resource-radar · 资源雷达
 
-一个用于 **DeepSeek Harness (DSH)** 的界面插件：在左侧导航栏新增「资源雷达」入口，点开是一个参考 [ZiChuanLan/freebie-radar](https://github.com/ZiChuanLan/freebie-radar) 的福利 / 好价 / 开源 / 资讯聚合工作台，并带一个 **Host 端无 CORS 的 RSS 采集器**。
+一个用于 **DeepSeek Harness (DSH)** 的界面插件：在左侧导航栏新增「资源雷达」入口，点开是一个参考 [ZiChuanLan/freebie-radar](https://github.com/ZiChuanLan/freebie-radar) 的福利 / 好价 / 开源 / 资讯聚合工作台。采集结果**自动经 AI 筛选、定级并翻译成中文**后展示，AI 使用 DSH 中已配置的默认模型，无需额外 API Key。
 
 > 这是一个 DSH 插件（bundle），不是独立应用。它通过 DSH 的 `sidebar.panellist` 与 `main` 槽位注册导航入口与中央面板。
 
 ## 功能
 
-- **兴趣频道**：真福利精选 / 全部白嫖 / 好价 / 开源 / 重要新闻 / 行业资讯，一键切换。
-- **三级筛选**：内容形态（`freebie` / `deal` / `opensource` / `news` / `info` / `noise`）× 27 类垂直分类 × 6 级获取方式（`free` / `conditional` / `lottery` / `trial` / `promo` / `paid`）+ 关键词搜索。
-- **屏蔽词防火墙**：命中屏蔽词的条目在列表中隐藏。
-- **数据源管理**：内置可用的 RSS/Atom 源（可启停），支持新增自定义源、编辑订阅地址、为每个源设定默认形态。
-- **手动采集**：顶部「⟳ 采集」一键采集所有已启用源；也可在「数据源」页对单源点采集。采集由 **Host 半的 `/radar-fetch` 路由在 Node 侧发起**，天然不受浏览器同源策略（CORS）限制；直连失败时前端还会退到公共中转兜底。
-- **条目操作**：收藏、忽略、复制兑换码、打开原文；卡片 / 紧凑两种视图。
-- **实例桥接（尽力而为）**：在「设置」填自托管 freebie-radar 地址后，可尝试拉取其 `/api/items` 并打开实例页面。
+- **兴趣频道**：真福利精选 / 全部白嫖 / 好价 / 开源 / 重要新闻 / 行业资讯 + ★ 收藏，频道名带实时计数。
+- **AI 自动流水线**：刷新时抓取 → 去重 → AI 筛选（`keep` 淘汰噪音/软文）→ 语义定级（六类形态 × 27 类分类 × 6 级获取方式 × 1–5 星）→ 标题/摘要翻译成中文 → 入库。
+- **数据源管理**：内置可用 RSS/Atom 源（可启停/删除），支持新增自定义源、编辑订阅地址、按源刷新。
+- **浏览体验**：三级筛选（收在 ⚙ 过滤弹层）、屏蔽词防火墙、已读标记（置灰沉底）、★ 收藏频道、卡片/紧凑视图、状态胶囊 + 悬浮刷新日志。
+- **持久化**：数据保存在 DSH profile 目录的 `resource-radar-data.json`（可备份/迁移），localStorage 仅作缓存。
+
+## 工作流程
+
+```
+⟳ 刷新（前端）
+  → GET /radar-fetch?url=<RSS>   Host 端 Node 抓取（无 CORS，浏览器同源策略不适用）
+  → 前端解析 RSS/Atom，与已入库条目按 URL/标题键去重，只取新条目
+  → GET /radar-ai?payload=…      Host 端用 ctx.llm.stream 调用 DSH 默认模型
+      （8 条/批 × 3 路并发；输出 keep/kind/category/obtain/quality/titleZh/noteZh/reason）
+  → keep=false 丢弃；其余带着中文翻译入库 → 频道分流展示
+```
+
+模型选择：优先 `agentDefaultModel.currentSelection()`（DSH 设置里的默认模型），否则取第一个已注册 provider 的第一个模型。
 
 ## 安装
 
-### 方式一：插件管理器（推荐）
 DeepSeek Harness → **设置 → 插件 → 添加插件 → 本地目录**，选择本仓库目录。
 
-### 方式二：命令行
-```bash
-# 在 DSH 的 profile 里安装本地 bundle（把 <本仓库路径> 换成实际绝对路径）
-# 可通过 DSH 的 plugin_manager / install_bundle 完成，或参照你的 DSH 版本说明
-```
-
-> **注意**：本插件有 Host 半（`index.js`，注册 `/radar-fetch` 采集路由）。DSH 的桌面宿主只在**进程启动时**加载 Host 半，因此首次安装 / 更新 Host 代码后需要**完整重启 DeepSeek Harness**（不是只刷新页面）。前端部分支持热更新。
+> **注意**：本插件有 Host 半（`index.js`，注册 `/radar-fetch`、`/radar-ai`、`/radar-store` 路由）。DSH 的桌面宿主只在**进程启动时**加载 Host 半，因此首次安装 / 更新 Host 代码后需要**完整重启 DeepSeek Harness**（不是只刷新页面）。前端部分支持热更新。
 
 ## 结构
 
 ```
 .
 ├── package.json         # DSH bundle 清单（dsh.bundle / dsh.client）
-├── cordis.patch.yml     # 插入 resource-radar 行
-├── index.js             # Host 半：注册 /radar-fetch 抓取代理（Node 抓取，无 CORS）
+├── cordis.patch.yml     # 插入 resource-radar 行（inject: llm / agentDefaultModel / webServer）
+├── index.js             # Host 半：三个路由（抓取代理 / AI 定级 / 持久化存储）
 ├── client.js            # 前端半：导航入口 + 工作台（React.createElement，无构建）
 ├── icon.svg             # 插件图标
 ├── locale/{zh,en}.json  # 插件显示标题 / 描述
-└── docs/DETAIL.md       # 插件详情
+└── docs/DETAIL.md       # 插件详情（插件管理页展示）
 ```
 
-## 采集原理
+## Host 端路由
 
-浏览器页面里的 `fetch` 读跨域资源会被 CORS 拦截（你在地址栏能打开 RSS ≠ 页面脚本能读取它）。本插件因此把抓取放到 Host 半：
-
-```
-前端「⟳ 采集」 → GET /radar-fetch?url=<RSS> → Node fetch 目标源 → 原样返回 XML → 前端 DOMParser 解析 → 去重并入信息流
-```
-
-`/radar-fetch` 带浏览器 UA、20s 超时、5MB 上限，并拒绝内网地址（防 SSRF）。
+| 路由 | 说明 |
+|---|---|
+| `GET /radar-fetch?url=…` | 抓取代理：Node 发起请求（浏览器 UA、20s 超时、5MB 上限、拒绝内网地址），原样返回内容 |
+| `GET /radar-ai?payload=…` | AI 定级：`{items:[…]}`（≤8 条）→ DSH 默认模型 → `{ok, model, results:[{id,keep,kind,category,obtain,quality,titleZh,noteZh,reason}]}` |
+| `GET/POST /radar-store` | 持久化：GET 读 `<profile>/resource-radar-data.json`，POST 校验后写入 |
 
 ## 已知限制
 
-- **受 Cloudflare 保护的站点**（如 LINUX DO、NodeSeek）Node 直连会返回 403「Just a moment」，需要额外部署 FlareSolverr 才能采集；这些源默认停用并在名称中标注。
-- 默认启用的可用源：V2EX、GamerPower、SharewareOnSale、Reddit r/freebies、少数派、Solidot、Hacker News。
-- 第一版不含定时采集、AI 语义定级与 Telegram 推送；如需完整能力可自托管 freebie-radar 并在插件「设置」中连接。
+- **受 Cloudflare 保护的站点**（如 LINUX DO、NodeSeek）Node 直连返回 403，需要额外部署 FlareSolverr 才能采集；这些源默认停用并在名称中标注。
+- AI 定级质量取决于 DSH 中配置的模型；每次刷新的耗时与 token 消耗随新条目数线性增长。
+- RSS 抓取每源上限 40 条；不含定时自动刷新、推送路由与多用户，需要完整能力请自托管 freebie-radar。
 
 ## 致谢
 
