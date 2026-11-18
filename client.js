@@ -179,6 +179,20 @@ window.__ModuleLoader__.load({
       link: { color: 'var(--dsw-alias-brand-primary)', textDecoration: 'none' },
     };
 
+    const OPEN_BTN_CSS = `
+.rr-open{display:inline-flex;align-items:center;gap:6px;padding:7px 18px;border-radius:999px;
+  background:color-mix(in srgb, var(--dsw-alias-brand-primary) 12%, transparent);
+  color:var(--dsw-alias-brand-primary);
+  border:1px solid color-mix(in srgb, var(--dsw-alias-brand-primary) 38%, transparent);
+  font-size:13px;font-weight:600;letter-spacing:.02em;text-decoration:none;cursor:pointer;
+  transition:background .18s ease,color .18s ease,box-shadow .18s ease,transform .18s ease;}
+.rr-open:hover{background:var(--dsw-alias-brand-primary);color:var(--dsw-alias-bg-base);
+  box-shadow:0 4px 14px color-mix(in srgb, var(--dsw-alias-brand-primary) 38%, transparent);
+  transform:translateY(-1px);}
+.rr-open:active{transform:translateY(0);box-shadow:none;}
+.rr-open svg{flex:none;}
+`;
+
     function useStore() {
       const [store, setStore] = useState(loadStore);
       const update = useCallback((fn) => {
@@ -209,7 +223,12 @@ window.__ModuleLoader__.load({
       const title = item.titleZh || item.title;
       const note = item.noteZh || item.note;
       const openBtn = item.url
-        ? h('a', { href: item.url, target: '_blank', rel: 'noreferrer', style: cardS.openBtn }, '🔗 ' + t('open'))
+        ? h('a', { className: 'rr-open', href: item.url, target: '_blank', rel: 'noreferrer' },
+          h('svg', { width: 13, height: 13, viewBox: '0 0 24 24', fill: 'none', stroke: 'currentColor', strokeWidth: 2.2, strokeLinecap: 'round', strokeLinejoin: 'round', 'aria-hidden': true },
+            h('path', { d: 'M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6' }),
+            h('polyline', { points: '15 3 21 3 21 9' }),
+            h('line', { x1: 10, y1: 14, x2: 21, y2: 3 })),
+          t('open'))
         : null;
       if (view === 'compact') {
         return h('div', { style: { ...cardS.card, flexDirection: 'row', alignItems: 'center', gap: 10, padding: '8px 12px' } },
@@ -458,6 +477,7 @@ window.__ModuleLoader__.load({
         KINDS.map((k) => h(Badge, { key: k, text: (KIND_ICON[k] || '•') + ' ' + t('kind_' + k) + ' ' + counts[k], hi: k === 'freebie' })));
 
       return h('div', { style: { height: '100%', overflowY: 'auto', padding: '20px 28px 32px', boxSizing: 'border-box', background: 'var(--dsw-alias-bg-base)', color: 'var(--dsw-alias-label-primary)' } },
+        h('style', null, OPEN_BTN_CSS),
         h('h1', { style: { margin: '0 0 4px', fontSize: 20, display: 'flex', alignItems: 'center', gap: 8 } }, '📡 ' + t('title')),
         h('p', { style: { margin: '0 0 16px', fontSize: 12, color: 'var(--dsw-alias-label-secondary)' } }, t('subtitle')),
         h('div', { style: { display: 'flex', gap: 4, flexWrap: 'wrap', marginBottom: 12 } }, channelTabs),
