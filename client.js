@@ -2,7 +2,7 @@ window.__ModuleLoader__.load({
   id: 'dsh-resource-radar-v8',
   factory(require) {
     const React = require('react');
-    const { useState, useMemo, useCallback, useEffect, useRef } = React;
+    const { useState, useMemo, useEffect } = React;
     const h = React.createElement;
 
     const STORE_KEY = 'resource-radar.v3';
@@ -167,6 +167,158 @@ window.__ModuleLoader__.load({
       throw new Error(attempts.join(' | '));
     }
 
+    // ------------------------------------------------------------------
+    // Background engine (module scope).
+    // Lives for the whole page session — independent of whether the radar
+    // panel is mounted. Refresh runs to completion even when the user
+    // switches to the conversation panel; the UI re-syncs on remount.
+    // ------------------------------------------------------------------
+    const engine = {
+      store: loadStore(),
+      log: [],
+      busySrc: null,
+      refreshing: false,
+      booted: false,
+      listeners: new Set(),
+    };
+    let activeT = null;
+    const tr = (key, fallback) => (activeT && activeT[key]) ? activeT[key] : (fallback || key);
+
+    function engineEmit() {
+      for (const fn of engine.listeners) { try { fn(); } catch (e) { /* listener errors never break the engine */ } }
+    }
+    function engineUpdate(fn) {
+      engine.store = fn(engine.store);
+      try { localStorage.setItem(STORE_KEY, JSON.stringify(engine.store)); } catch (e) { /* ignore */ }
+      clearTimeout(engine.saveTimer);
+      engine.saveTimer = setTimeout(() => {
+        fetch(STORE_ROUTE, {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ items: engine.store.items, sources: engine.store.sources, blocklist: engine.store.blocklist, view: engine.store.view }),
+        }).catch(() => { /* host route unavailable; localStorage cache remains */ });
+      }, 800);
+      engineEmit();
+    }
+    function engineLog(entry) {
+      engine.log = [entry, ...engine.log].slice(0, 8);
+      engineEmit();
+    }
+
+    async function aiBatch(targets) {
+      const payload = encodeURIComponent(JSON.stringify({
+        items: targets.map((it) => ({ id: it.id, title: it.title, note: it.note || '', url: it.url || '', source: it.source || '' })),
+      }));
+      const res = await fetch('/radar-ai?payload=' + payload, { signal: AbortSignal.timeout(150000) });
+      const data = await res.json();
+      if (!data.ok) throw new Error(data.error || 'HTTP ' + res.status);
+      return data;
+    }
+
+    function applyAiResult(it, r) {
+      if (!r) return it;
+      return {
+        ...it,
+        kind: r.kind || it.kind,
+        category: r.category || it.category,
+        obtain: r.obtain || it.obtain,
+        quality: r.quality || it.quality,
+        ai: true,
+        keep: r.keep !== false,
+        titleZh: r.titleZh || it.titleZh,
+        noteZh: r.noteZh || it.noteZh,
+        note: (r.reason ? r.reason + (it.note ? '；' + it.note : '') : it.note).slice(0, 200),
+      };
+    }
+
+    async function collectSource(source) {
+      if (!source.feedUrl) return { ok: false, added: 0, error: tr('noFeed', '未配置订阅地址') };
+      engine.busySrc = source.id;
+      engineEmit();
+      let added = 0, dropped = 0, aiFailed = false;
+      try {
+        const fresh = await fetchFeed(source);
+        const seenKeys = new Set(engine.store.items.map((it) => (it.url || it.title).slice(0, 120)));
+        const newItems = fresh.filter((it) => { const k = (it.url || it.title).slice(0, 120); if (seenKeys.has(k)) return false; seenKeys.add(k); return true; });
+        const triaged = [];
+        const AI_CONCURRENCY = 3;
+        const parts = await Promise.all(Array.from({ length: Math.min(AI_CONCURRENCY, Math.ceil(newItems.length / 8)) }, async (_, worker) => {
+          const out = [];
+          for (let i = worker * 8; i < newItems.length; i += 8 * AI_CONCURRENCY) {
+            const batch = newItems.slice(i, i + 8);
+            try {
+              const data = await aiBatch(batch);
+              const map = new Map((data.results || []).map((r) => [r.id, r]));
+              for (const it of batch) {
+                const r = map.get(it.id);
+                const done = applyAiResult(it, r);
+                if (r && r.keep === false) { dropped++; continue; }
+                out.push(done);
+              }
+            } catch (e) {
+              aiFailed = true;
+              out.push(...batch);
+            }
+          }
+          return out;
+        }));
+        for (const part of parts) triaged.push(...part);
+        engineUpdate((s) => {
+          const seen = new Set(s.items.map((it) => (it.url || it.title).slice(0, 120)));
+          const add = triaged.filter((it) => { const k = (it.url || it.title).slice(0, 120); if (seen.has(k)) return false; seen.add(k); return true; });
+          added = add.length;
+          return { ...s, items: [...add, ...s.items] };
+        });
+        engineUpdate((s) => ({ ...s, sources: s.sources.map((x) => (x.id === source.id ? { ...x, lastCollect: new Date().toISOString(), lastCount: added, lastError: '' } : x)) }));
+        engineLog({ name: source.name + ' [AI +' + added + (dropped ? ' / 淘汰 ' + dropped : '') + (newItems.length ? ' / 新 ' + newItems.length : ' / 无新条目') + (aiFailed ? ' / 部分AI失败' : '') + ']', added, fail: aiFailed, at: new Date().toLocaleTimeString() });
+        return { ok: true, added };
+      } catch (e) {
+        engineUpdate((s) => ({ ...s, sources: s.sources.map((x) => (x.id === source.id ? { ...x, lastCollect: new Date().toISOString(), lastCount: 0, lastError: String((e && e.message) || e).slice(0, 240) } : x)) }));
+        engineLog({ name: source.name, added: 0, fail: true, at: new Date().toLocaleTimeString() });
+        return { ok: false, added: 0, error: String((e && e.message) || e) };
+      } finally {
+        engine.busySrc = null;
+        engineEmit();
+      }
+    }
+
+    async function collectEnabled() {
+      const enabled = engine.store.sources.filter((s) => s.enabled);
+      if (!enabled.length) { engineLog({ name: tr('noEnabledSrc', '没有已启用的源'), added: 0, at: new Date().toLocaleTimeString() }); return 0; }
+      if (engine.refreshing) return 0;
+      engine.refreshing = true;
+      engineEmit();
+      try {
+        for (const src of enabled) await collectSource(src);
+      } finally {
+        engine.refreshing = false;
+        engineEmit();
+      }
+      return enabled.length;
+    }
+
+    function engineBoot() {
+      if (engine.booted) return;
+      engine.booted = true;
+      // Host-side durable store wins over the localStorage cache (it survives wipes).
+      fetch(STORE_ROUTE).then((r) => r.json()).then((j) => {
+        let hasHost = false;
+        if (j && j.ok && j.data && Array.isArray(j.data.items) && j.data.items.length) {
+          hasHost = true;
+          engineUpdate((s) => ({ ...s, items: j.data.items, sources: j.data.sources || s.sources, blocklist: j.data.blocklist || s.blocklist, view: j.data.view || s.view, firstRun: false }));
+        }
+        if (hasHost || !engine.store.firstRun) return undefined;
+        return collectEnabled().then((n) => {
+          if (n) engineUpdate((s) => ({ ...s, items: s.items.filter((it) => !/^s\d+$/.test(it.id)) }));
+        });
+      }).catch(() => {
+        if (!engine.store.firstRun) return undefined;
+        return collectEnabled().then((n) => {
+          if (n) engineUpdate((s) => ({ ...s, items: s.items.filter((it) => !/^s\d+$/.test(it.id)) }));
+        });
+      });
+    }
+
     const cardS = {
       card: { display: 'flex', flexDirection: 'column', gap: 6, padding: '12px 14px', borderRadius: 10, border: '1px solid var(--dsw-alias-border-l1)', background: 'var(--dsw-alias-bg-layer-1)' },
       title: { margin: 0, fontSize: 14, fontWeight: 600, color: 'var(--dsw-alias-label-primary)', lineHeight: 1.45 },
@@ -200,29 +352,6 @@ window.__ModuleLoader__.load({
   box-shadow:none;transform:none;}
 @keyframes rr-pulse{0%,100%{opacity:1}50%{opacity:.45}}
 `;
-
-    function useStore() {
-      const [store, setStore] = useState(loadStore);
-      const saveTimer = useRef(null);
-      const update = useCallback((fn) => {
-        setStore((prev) => {
-          const next = fn(prev);
-          try { localStorage.setItem(STORE_KEY, JSON.stringify(next)); } catch (e) { /* ignore */ }
-          try {
-            clearTimeout(saveTimer.current);
-            saveTimer.current = setTimeout(() => {
-              fetch(STORE_ROUTE, {
-                method: 'POST',
-                headers: { 'content-type': 'application/json' },
-                body: JSON.stringify({ items: next.items, sources: next.sources, blocklist: next.blocklist, view: next.view }),
-              }).catch(() => { /* host route unavailable; localStorage cache remains */ });
-            }, 800);
-          } catch (e) { /* ignore */ }
-          return next;
-        });
-      }, []);
-      return [store, update];
-    }
 
     function RadarIcon() {
       return h('svg', { viewBox: '0 0 64 64', width: 16, height: 16, 'aria-hidden': true, style: { display: 'block' } },
@@ -283,19 +412,33 @@ window.__ModuleLoader__.load({
           h('button', { style: item.fav ? cardS.btnFav : cardS.btn, onClick: () => onFav(item.id) }, fav + ' ' + t('favorite'))));
     }
 
+    function useEngine() {
+      const [, force] = useState(0);
+      useEffect(() => {
+        engineBoot();
+        const fn = () => force((n) => n + 1);
+        engine.listeners.add(fn);
+        return () => engine.listeners.delete(fn);
+      }, []);
+      return engine;
+    }
+
     function Workbench(props) {
       const { t } = props;
-      const [store, update] = useStore();
+      const eng = useEngine();
+      const store = eng.store;
+      const busySrc = eng.busySrc;
+      const refreshing = eng.refreshing;
+      const log = eng.log;
       const [channel, setChannel] = useState('selectFreebie');
       const [kindF, setKindF] = useState('');
       const [catF, setCatF] = useState('');
       const [obF, setObF] = useState('');
       const [q, setQ] = useState('');
       const [pane, setPane] = useState('feed');
-      const [busySrc, setBusySrc] = useState(null);
-      const [log, setLog] = useState([]);
       const [chipOpen, setChipOpen] = useState(false);
       const [filterOpen, setFilterOpen] = useState(false);
+      activeT = t;
 
       const isFavChannel = channel === 'favorites';
       const ch = CHANNELS[channel];
@@ -324,128 +467,14 @@ window.__ModuleLoader__.load({
         return c;
       }, [store.items, store.blocklist]);
 
-      const toggleFav = (id) => update((s) => ({ ...s, items: s.items.map((it) => (it.id === id ? { ...it, fav: !it.fav } : it)) }));
-      const markRead = (id) => update((s) => ({ ...s, items: s.items.map((it) => (it.id === id && !it.read ? { ...it, read: true } : it)) }));
+      const toggleFav = (id) => engineUpdate((s) => ({ ...s, items: s.items.map((it) => (it.id === id ? { ...it, fav: !it.fav } : it)) }));
+      const markRead = (id) => engineUpdate((s) => ({ ...s, items: s.items.map((it) => (it.id === id && !it.read ? { ...it, read: true } : it)) }));
 
-      const mergeItems = useCallback((fresh) => {
-        let added = 0;
-        update((s) => {
-          const seen = new Set(s.items.map((it) => (it.url || it.title).slice(0, 120)));
-          const add = fresh.filter((it) => { const k = (it.url || it.title).slice(0, 120); if (seen.has(k)) return false; seen.add(k); return true; });
-          added = add.length;
-          return { ...s, items: [...add, ...s.items] };
-        });
-        return added;
-      }, [update]);
-
-      const aiBatch = useCallback(async (targets) => {
-        const payload = encodeURIComponent(JSON.stringify({
-          items: targets.map((it) => ({ id: it.id, title: it.title, note: it.note || '', url: it.url || '', source: it.source || '' })),
-        }));
-        const res = await fetch('/radar-ai?payload=' + payload, { signal: AbortSignal.timeout(150000) });
-        const data = await res.json();
-        if (!data.ok) throw new Error(data.error || 'HTTP ' + res.status);
-        return data;
-      }, []);
-
-      const applyAiResults = useCallback((results) => {
-        const map = new Map((results || []).map((r) => [r.id, r]));
-        return { map, apply: (it) => {
-          const r = map.get(it.id);
-          if (!r) return it;
-          return {
-            ...it,
-            kind: r.kind || it.kind,
-            category: r.category || it.category,
-            obtain: r.obtain || it.obtain,
-            quality: r.quality || it.quality,
-            ai: true,
-            keep: r.keep !== false,
-            titleZh: r.titleZh || it.titleZh,
-            noteZh: r.noteZh || it.noteZh,
-            note: (r.reason ? r.reason + (it.note ? '；' + it.note : '') : it.note).slice(0, 200),
-          };
-        } };
-      }, []);
-
-      const collectSource = useCallback(async (source) => {
-        if (!source.feedUrl) return { ok: false, added: 0, error: t('noFeed') };
-        setBusySrc(source.id);
-        let added = 0, dropped = 0;
-        try {
-          const fresh = await fetchFeed(source);
-          const triaged = [];
-          const seenKeys = new Set(store.items.map((it) => (it.url || it.title).slice(0, 120)));
-          const newItems = fresh.filter((it) => { const k = (it.url || it.title).slice(0, 120); if (seenKeys.has(k)) return false; seenKeys.add(k); return true; });
-          let aiFailed = false;
-          const AI_CONCURRENCY = 3;
-          const results = await Promise.all(Array.from({ length: Math.min(AI_CONCURRENCY, Math.ceil(newItems.length / 8)) }, async (_, worker) => {
-            const out = [];
-            for (let i = worker * 8; i < newItems.length; i += 8 * AI_CONCURRENCY) {
-              const batch = newItems.slice(i, i + 8);
-              try {
-                const data = await aiBatch(batch);
-                const { map, apply } = applyAiResults(data.results);
-                for (const it of batch) {
-                  const r = map.get(it.id);
-                  const done = apply(it);
-                  if (r && r.keep === false) { dropped++; continue; }
-                  out.push(done);
-                }
-              } catch (e) {
-                aiFailed = true;
-                out.push(...batch);
-              }
-            }
-            return out;
-          }));
-          for (const part of results) triaged.push(...part);
-          added = mergeItems(triaged);
-          update((s) => ({ ...s, sources: s.sources.map((x) => (x.id === source.id ? { ...x, lastCollect: new Date().toISOString(), lastCount: added, lastError: '' } : x)) }));
-          setLog((l) => [{ name: source.name + ' [AI +' + added + (dropped ? ' / 淘汰 ' + dropped : '') + (newItems.length ? ' / 新 ' + newItems.length : ' / 无新条目') + (aiFailed ? ' / 部分AI失败' : '') + ']', added, fail: aiFailed, at: new Date().toLocaleTimeString() }, ...l].slice(0, 8));
-          return { ok: true, added };
-        } catch (e) {
-          update((s) => ({ ...s, sources: s.sources.map((x) => (x.id === source.id ? { ...x, lastCollect: new Date().toISOString(), lastCount: 0, lastError: String((e && e.message) || e).slice(0, 240) } : x)) }));
-          setLog((l) => [{ name: source.name, added: 0, fail: true, at: new Date().toLocaleTimeString() }, ...l].slice(0, 8));
-          return { ok: false, added: 0, error: String((e && e.message) || e) };
-        } finally {
-          setBusySrc(null);
-        }
-      }, [aiBatch, applyAiResults, mergeItems, update, t]);
-
-      const collectEnabled = useCallback(async () => {
-        const enabled = store.sources.filter((s) => s.enabled);
-        if (!enabled.length) { setLog([{ name: t('noEnabledSrc'), added: 0, at: new Date().toLocaleTimeString() }]); return 0; }
-        for (const src of enabled) await collectSource(src);
-        return enabled.length;
-      }, [store.sources, collectSource, t]);
-
-      const autoRef = useRef(false);
-      const startAuto = () => collectEnabled().then((n) => {
-        if (n) update((s) => ({ ...s, items: s.items.filter((it) => !/^s\d+$/.test(it.id)) }));
-      });
-      useEffect(() => {
-        if (autoRef.current) return;
-        autoRef.current = true;
-        // Host-side durable store wins over the localStorage cache (it survives wipes).
-        fetch(STORE_ROUTE).then((r) => r.json()).then((j) => {
-          let hasHost = false;
-          if (j && j.ok && j.data && Array.isArray(j.data.items) && j.data.items.length) {
-            hasHost = true;
-            setStore((s) => ({ ...s, items: j.data.items, sources: j.data.sources || s.sources, blocklist: j.data.blocklist || s.blocklist, view: j.data.view || s.view, firstRun: false }));
-          }
-          if (hasHost || !store.firstRun) return undefined;
-          return startAuto();
-        }).catch(() => {
-          if (!store.firstRun) return undefined;
-          return startAuto();
-        });
-      }, []);
 
       const statusChip = h('div', { style: { position: 'relative' } },
         (() => {
           const last = log[0];
-          const busy = !!busySrc;
+          const busy = refreshing || !!busySrc;
           const hasFail = log.some((e) => e.fail);
           const base = {
             border: 'none', background: 'transparent', cursor: busy ? 'wait' : 'pointer',
@@ -457,7 +486,7 @@ window.__ModuleLoader__.load({
           return h('button', { style: base, title: t('logTitle'), onClick: () => setChipOpen(!chipOpen) },
             busy ? '⏳ ' + t('refreshing') : (last ? (hasFail ? '⚠ ' : '✓ ') + (last.name.split(' [')[0]) + ' +' + last.added : '✓ ' + t('idle')));
         })(),
-        chipOpen && !busySrc ? h('div', { style: { position: 'absolute', top: '100%', right: 0, zIndex: 20, marginTop: 6, padding: '8px 12px', borderRadius: 10, border: '1px solid var(--dsw-alias-border-l2)', background: 'var(--dsw-alias-bg-overlay)', boxShadow: '0 6px 20px rgba(0,0,0,.15)', minWidth: 260, display: 'flex', flexDirection: 'column', gap: 3 } },
+        chipOpen && !refreshing ? h('div', { style: { position: 'absolute', top: '100%', right: 0, zIndex: 20, marginTop: 6, padding: '8px 12px', borderRadius: 10, border: '1px solid var(--dsw-alias-border-l2)', background: 'var(--dsw-alias-bg-overlay)', boxShadow: '0 6px 20px rgba(0,0,0,.15)', minWidth: 260, display: 'flex', flexDirection: 'column', gap: 3 } },
           log.length
             ? log.map((e, i) => h('div', { key: i, style: { fontSize: 12, color: e.fail ? 'var(--dsw-alias-state-error-primary)' : 'var(--dsw-alias-state-success-primary)', whiteSpace: 'nowrap' } },
               (e.fail ? '✕ ' : '✓ ') + e.name + ' · +' + e.added + ' · ' + e.at))
@@ -507,10 +536,10 @@ window.__ModuleLoader__.load({
         h('span', { style: cardS.meta }, t('showing').replace('{n}', String(items.length))),
         h('span', { style: { marginLeft: 'auto' } }),
         statusChip,
-        h('button', { style: cardS.btn, onClick: () => update((s) => ({ ...s, view: s.view === 'compact' ? 'cards' : 'compact' })) },
+        h('button', { style: cardS.btn, onClick: () =>engineUpdate((s) => ({ ...s, view: s.view === 'compact' ? 'cards' : 'compact' })) },
           store.view === 'compact' ? '▦ ' + t('viewCards') : '☰ ' + t('viewCompact')),
         h('button', { style: cardS.btn, title: t('collectTip'), onClick: collectEnabled },
-          busySrc ? '⏳ ' + t('collecting') : '⟳ ' + t('collect')));
+          refreshing || busySrc ? '⏳ ' + t('collecting') : '⟳ ' + t('collect')));
 
       const paneTabs = ['feed', 'sources', 'blocks', 'about'].map((key) =>
         h('button', { key, style: pane === key ? cardS.tabOn : cardS.tab, onClick: () => setPane(key) }, t('pane_' + key)));
@@ -530,14 +559,14 @@ window.__ModuleLoader__.load({
               h(Badge, { text: src.type }),
               h('button', { style: cardS.btn, title: t('collectOne'), onClick: () => collectSource(src) },
                 busySrc === src.id ? '⏳' : '⟳ ' + t('collect')),
-              h('button', { style: cardS.btn, onClick: () => update((s) => ({ ...s, sources: s.sources.map((x) => (x.id === src.id ? { ...x, enabled: !x.enabled } : x)) })) },
+              h('button', { style: cardS.btn, onClick: () =>engineUpdate((s) => ({ ...s, sources: s.sources.map((x) => (x.id === src.id ? { ...x, enabled: !x.enabled } : x)) })) },
                 src.enabled ? '● ' + t('enabled') : '○ ' + t('disabled')),
-              h('button', { style: cardS.btn, title: t('removeSrc'), onClick: () => update((s) => ({ ...s, sources: s.sources.filter((x) => x.id !== src.id) })) }, '✕')),
+              h('button', { style: cardS.btn, title: t('removeSrc'), onClick: () =>engineUpdate((s) => ({ ...s, sources: s.sources.filter((x) => x.id !== src.id) })) }, '✕')),
             h('div', { style: { display: 'flex', gap: 8, alignItems: 'center' } },
               h('input', { style: { ...cardS.input, flex: 1 }, placeholder: t('feedUrlHint'), value: src.feedUrl || '',
-                onChange: (e) => update((s) => ({ ...s, sources: s.sources.map((x) => (x.id === src.id ? { ...x, feedUrl: e.target.value } : x)) })) }),
+                onChange: (e) =>engineUpdate((s) => ({ ...s, sources: s.sources.map((x) => (x.id === src.id ? { ...x, feedUrl: e.target.value } : x)) })) }),
               h('select', { style: cardS.select, value: src.kindHint || 'info', title: t('kindHint'),
-                onChange: (e) => update((s) => ({ ...s, sources: s.sources.map((x) => (x.id === src.id ? { ...x, kindHint: e.target.value } : x)) })) },
+                onChange: (e) =>engineUpdate((s) => ({ ...s, sources: s.sources.map((x) => (x.id === src.id ? { ...x, kindHint: e.target.value } : x)) })) },
                 KINDS.filter((k) => k !== 'noise').map((k) => h('option', { key: k, value: k }, t('kind_' + k))))),
             h('div', { style: cardS.meta },
               src.lastError ? '✕ ' + src.lastError
@@ -549,7 +578,7 @@ window.__ModuleLoader__.load({
               const name = el && el.value ? el.value.trim() : '';
               if (!name) return;
               if (el) el.value = '';
-              update((s) => ({ ...s, sources: [...s.sources, { id: 'c' + Date.now(), name, type: 'rss', enabled: true, feedUrl: '', kindHint: 'info' }] }));
+             engineUpdate((s) => ({ ...s, sources: [...s.sources, { id: 'c' + Date.now(), name, type: 'rss', enabled: true, feedUrl: '', kindHint: 'info' }] }));
             } }, t('add'))));
       } else if (pane === 'blocks') {
         body = h('div', { style: { display: 'flex', flexDirection: 'column', gap: 8 } },
@@ -560,11 +589,11 @@ window.__ModuleLoader__.load({
               const w = el && el.value ? el.value.trim() : '';
               if (!w) return;
               if (el) el.value = '';
-              update((s) => (s.blocklist.includes(w) ? s : { ...s, blocklist: [...s.blocklist, w] }));
+             engineUpdate((s) => (s.blocklist.includes(w) ? s : { ...s, blocklist: [...s.blocklist, w] }));
             } }, t('add'))),
           h('div', { style: { display: 'flex', gap: 6, flexWrap: 'wrap' } },
             store.blocklist.length
-              ? store.blocklist.map((w) => h('span', { key: w, style: { ...cardS.badge, cursor: 'pointer' }, title: t('remove'), onClick: () => update((s) => ({ ...s, blocklist: s.blocklist.filter((x) => x !== w) })) }, w + ' ✕'))
+              ? store.blocklist.map((w) => h('span', { key: w, style: { ...cardS.badge, cursor: 'pointer' }, title: t('remove'), onClick: () =>engineUpdate((s) => ({ ...s, blocklist: s.blocklist.filter((x) => x !== w) })) }, w + ' ✕'))
               : h('span', { style: cardS.meta }, t('blockEmpty'))));
       } else {
         body = h('div', { style: { display: 'flex', flexDirection: 'column', gap: 8, maxWidth: 640 } },
