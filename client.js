@@ -1,5 +1,5 @@
 window.__ModuleLoader__.load({
-  id: 'dsh-resource-radar-v8',
+  id: 'dsh-resource-radar',
   factory(require) {
     const React = require('react');
     const { useState, useMemo, useEffect } = React;
