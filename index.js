@@ -143,14 +143,18 @@ function defaultSelection(ctx) {
   return null;
 }
 
-function buildPrompt(items) {
-  const system = '你是福利/资讯聚合雷达的分类与翻译引擎。只输出一个 JSON 数组，不要输出任何其他文字、不要用 markdown 代码块。';
-  const user = '对下列条目逐条做筛选、语义定级和中文翻译。\n'
-    + 'keep: 布尔值。true = 入选（对用户有价值），false = 淘汰（纯求助、灌水、无价值噪音、广告软文、与描述不符的内容）。\n'
+function buildPrompt(items, mode) {
+  const system = '你是福利/资讯聚合雷达的分类与翻译引擎。只输出一个 JSON 数组，不要输出任何其他文字、不要用 markdown 代码块。宁缺毋滥：不确定条目对用户是否有价值时，判 keep=false。';
+  const review = mode === 'review'
+    ? '\n本次任务是复审已入库的旧条目：这些条目此前未经严格筛选或筛选标准过宽。请用同样严格的标准逐条重新判断 keep——按当前标准不再值得展示的一律 keep=false（并给 noise）。翻译可以留空。\n'
+    : '';
+  const user = '对下列条目逐条做筛选、语义定级和中文翻译。' + review + '\n'
+    + 'keep: 布尔值。true = 入选（对用户有实际价值），false = 淘汰（纯求助、灌水、情绪宣泄、meme/玩梗、无信息量的转述、公告式空帖、广告软文、与描述不符的内容）。\n'
     + 'kind 取值: freebie(白嫖福利) deal(特价好价/拼车/二手) opensource(开源项目) news(重要新闻) info(行业资讯/教程) noise(纯求助/灌水,无价值)\n'
+    + 'kind 门槛: news 仅限重大、影响面广的事件（大厂故障、重大政策、重大安全事件）；info 仅限信息量大的教程/深度分析/重要行业动态；论坛闲聊、日常讨论帖、单个用户的求助或吐槽一律 noise + keep=false。\n'
     + 'category 取值: ' + CATEGORIES.join('/') + '\n'
     + 'obtain 取值: free(直接白嫖) conditional(有条件) lottery(抽奖) trial(试用) promo(推广引流) paid(需付费)\n'
-    + 'quality: 1-5 整数, 5=高价值确定可领, 1=噪音。\n'
+    + 'quality: 1-5 整数, 5=高价值确定可领, 1=噪音。info/news 类条目信息量平平给 1-2 分。\n'
     + 'reason: 不超过 30 字的中文理由。\n'
     + 'titleZh: 条目标题的简体中文翻译（保留产品名/活动名等专有名词原文）；keep=false 时可为空字符串。\n'
     + 'noteZh: 摘要的简体中文翻译（无摘要或摘要无信息量时可为空字符串）。\n'
@@ -167,7 +171,7 @@ function extractJsonArray(text) {
   return parsed;
 }
 
-async function aiClassify(ctx, items) {
+async function aiClassify(ctx, items, mode) {
   if (!ctx.llm || typeof ctx.llm.stream !== 'function') {
     return { ok: false, error: 'DSH llm service not available in this composition' };
   }
@@ -184,7 +188,7 @@ async function aiClassify(ctx, items) {
     return { ok: false, error: 'listModels failed: ' + String((e && e.message) || e).slice(0, 120) };
   }
   diag('aiClassify via ' + sel.provider + '/' + sel.model + ' (' + sel.from + '), items=' + items.length);
-  const { system, user } = buildPrompt(items);
+  const { system, user } = buildPrompt(items, mode);
   let text = '';
   try {
     const stream = ctx.llm.stream({
@@ -193,7 +197,7 @@ async function aiClassify(ctx, items) {
       system,
       messages: [{ role: 'user', content: [{ type: 'text', text: user }] }],
       temperature: 0.2,
-      maxTokens: 3000,
+      maxTokens: 6000,
     });
     for await (const chunk of stream) {
       if (chunk && chunk.type === 'text-delta') text += chunk.text;
@@ -245,7 +249,7 @@ async function radarAi(request, ctx) {
     url: String(it.url || '').slice(0, 200),
     source: String(it.source || '').slice(0, 40),
   }));
-  const result = await aiClassify(ctx, slim);
+  const result = await aiClassify(ctx, slim, payload.field === 'review' ? 'review' : '');
   return new Response(JSON.stringify(result), {
     status: result.ok ? 200 : 502,
     headers: { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store' },

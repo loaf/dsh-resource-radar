@@ -177,7 +177,9 @@ window.__ModuleLoader__.load({
       store: loadStore(),
       log: [],
       busySrc: null,
+      busyNames: [],
       refreshing: false,
+      reviewing: false,
       booted: false,
       listeners: new Set(),
     };
@@ -205,15 +207,19 @@ window.__ModuleLoader__.load({
       engineEmit();
     }
 
-    async function aiBatch(targets) {
+    async function aiBatch(targets, field) {
       const payload = encodeURIComponent(JSON.stringify({
         items: targets.map((it) => ({ id: it.id, title: it.title, note: it.note || '', url: it.url || '', source: it.source || '' })),
+        field: field || '',
       }));
       const res = await fetch('/radar-ai?payload=' + payload, { signal: AbortSignal.timeout(150000) });
       const data = await res.json();
       if (!data.ok) throw new Error(data.error || 'HTTP ' + res.status);
+      if (data.model) lastAiModel = data.model;
       return data;
     }
+
+    let lastAiModel = '';
 
     function applyAiResult(it, r) {
       if (!r) return it;
@@ -234,18 +240,20 @@ window.__ModuleLoader__.load({
     async function collectSource(source) {
       if (!source.feedUrl) return { ok: false, added: 0, error: tr('noFeed', '未配置订阅地址') };
       engine.busySrc = source.id;
+      engine.busyNames = [...new Set([...engine.busyNames, source.name.split('（')[0]])];
       engineEmit();
-      let added = 0, dropped = 0, aiFailed = false;
+      let added = 0, dropped = 0, aiFailed = false, lowQualityDrop = 0;
       try {
         const fresh = await fetchFeed(source);
         const seenKeys = new Set(engine.store.items.map((it) => (it.url || it.title).slice(0, 120)));
         const newItems = fresh.filter((it) => { const k = (it.url || it.title).slice(0, 120); if (seenKeys.has(k)) return false; seenKeys.add(k); return true; });
         const triaged = [];
+        const BATCH = 6;
         const AI_CONCURRENCY = 3;
-        const parts = await Promise.all(Array.from({ length: Math.min(AI_CONCURRENCY, Math.ceil(newItems.length / 8)) }, async (_, worker) => {
+        const parts = await Promise.all(Array.from({ length: Math.min(AI_CONCURRENCY, Math.ceil(newItems.length / BATCH) || 1) }, async (_, worker) => {
           const out = [];
-          for (let i = worker * 8; i < newItems.length; i += 8 * AI_CONCURRENCY) {
-            const batch = newItems.slice(i, i + 8);
+          for (let i = worker * BATCH; i < newItems.length; i += BATCH * AI_CONCURRENCY) {
+            const batch = newItems.slice(i, i + BATCH);
             try {
               const data = await aiBatch(batch);
               const map = new Map((data.results || []).map((r) => [r.id, r]));
@@ -253,6 +261,7 @@ window.__ModuleLoader__.load({
                 const r = map.get(it.id);
                 const done = applyAiResult(it, r);
                 if (r && r.keep === false) { dropped++; continue; }
+                if (r && done.kind === 'info' && (done.quality || 3) <= 1) { lowQualityDrop++; continue; }
                 out.push(done);
               }
             } catch (e) {
@@ -270,7 +279,7 @@ window.__ModuleLoader__.load({
           return { ...s, items: [...add, ...s.items] };
         });
         engineUpdate((s) => ({ ...s, sources: s.sources.map((x) => (x.id === source.id ? { ...x, lastCollect: new Date().toISOString(), lastCount: added, lastError: '' } : x)) }));
-        engineLog({ name: source.name + ' [AI +' + added + (dropped ? ' / 淘汰 ' + dropped : '') + (newItems.length ? ' / 新 ' + newItems.length : ' / 无新条目') + (aiFailed ? ' / 部分AI失败' : '') + ']', added, fail: aiFailed, at: new Date().toLocaleTimeString() });
+        engineLog({ name: source.name + ' [AI +' + added + (dropped ? ' / 淘汰 ' + dropped : '') + (lowQualityDrop ? ' / 低质 ' + lowQualityDrop : '') + (newItems.length ? ' / 新 ' + newItems.length : ' / 无新条目') + (aiFailed ? ' / AI失败' : '') + ']', added, fail: aiFailed, at: new Date().toLocaleTimeString() });
         return { ok: true, added };
       } catch (e) {
         engineUpdate((s) => ({ ...s, sources: s.sources.map((x) => (x.id === source.id ? { ...x, lastCollect: new Date().toISOString(), lastCount: 0, lastError: String((e && e.message) || e).slice(0, 240) } : x)) }));
@@ -278,6 +287,7 @@ window.__ModuleLoader__.load({
         return { ok: false, added: 0, error: String((e && e.message) || e) };
       } finally {
         engine.busySrc = null;
+        engine.busyNames = engine.busyNames.filter((n) => n !== source.name.split('（')[0]);
         engineEmit();
       }
     }
@@ -287,14 +297,63 @@ window.__ModuleLoader__.load({
       if (!enabled.length) { engineLog({ name: tr('noEnabledSrc', '没有已启用的源'), added: 0, at: new Date().toLocaleTimeString() }); return 0; }
       if (engine.refreshing) return 0;
       engine.refreshing = true;
+      engine.busySrc = null;
       engineEmit();
       try {
-        for (const src of enabled) await collectSource(src);
+        // Refresh sources with bounded parallelism (3 at a time); each source
+        // still runs its own AI batches with internal concurrency.
+        const PAR = 3;
+        let cursor = 0;
+        const workers = Array.from({ length: Math.min(PAR, enabled.length) }, async () => {
+          while (cursor < enabled.length) {
+            const src = enabled[cursor++];
+            await collectSource(src);
+          }
+        });
+        await Promise.all(workers);
       } finally {
         engine.refreshing = false;
+        engine.busySrc = null;
         engineEmit();
       }
       return enabled.length;
+    }
+
+    /** Re-run AI triage over already-stored items of one kind; drop what no longer passes. */
+    async function aiRecheck(kind) {
+      if (engine.reviewing) return { reviewed: 0, dropped: 0 };
+      const pool = engine.store.items.filter((it) => it.kind === kind && !it.fav);
+      if (!pool.length) return { reviewed: 0, dropped: 0 };
+      engine.reviewing = true;
+      engineEmit();
+      let reviewed = 0, dropped = 0, aiFailed = false;
+      try {
+        const BATCH = 6;
+        const PAR = 3;
+        let cursor = 0;
+        const workers = Array.from({ length: Math.min(PAR, Math.ceil(pool.length / BATCH) || 1) }, async () => {
+          while (cursor < pool.length) {
+            const batch = pool.slice(cursor, cursor + BATCH);
+            cursor += BATCH;
+            try {
+              const data = await aiBatch(batch, 'review');
+              const map = new Map((data.results || []).map((r) => [r.id, r]));
+              const dropIds = batch.filter((it) => { const r = map.get(it.id); return r && r.keep === false; }).map((it) => it.id);
+              reviewed += batch.length;
+              dropped += dropIds.length;
+              if (dropIds.length) engineUpdate((s) => ({ ...s, items: s.items.filter((it) => !dropIds.includes(it.id)) }));
+            } catch (e) {
+              aiFailed = true;
+            }
+          }
+        });
+        await Promise.all(workers);
+        engineLog({ name: 'AI 复审 ' + kind + ' [' + (aiFailed ? '部分AI失败，已跳过失败批；' : '') + '复审 ' + reviewed + ' / 剔除 ' + dropped + ']', added: 0, fail: aiFailed, at: new Date().toLocaleTimeString() });
+        return { reviewed, dropped };
+      } finally {
+        engine.reviewing = false;
+        engineEmit();
+      }
     }
 
     function engineBoot() {
@@ -428,6 +487,7 @@ window.__ModuleLoader__.load({
       const eng = useEngine();
       const store = eng.store;
       const busySrc = eng.busySrc;
+      const busyNames = eng.busyNames || [];
       const refreshing = eng.refreshing;
       const log = eng.log;
       const [channel, setChannel] = useState('selectFreebie');
@@ -471,7 +531,7 @@ window.__ModuleLoader__.load({
       const markRead = (id) => engineUpdate((s) => ({ ...s, items: s.items.map((it) => (it.id === id && !it.read ? { ...it, read: true } : it)) }));
 
 
-      const busySrcName = busySrc ? String(((store.sources.find((s) => s.id === busySrc) || {}).name || '').split('（')[0]) : '';
+      const busySrcName = busyNames.length ? busyNames.slice(0, 3).join(' · ') : (busySrc ? String(((store.sources.find((s) => s.id === busySrc) || {}).name || '').split('（')[0]) : '');
 
       const statusChip = h('div', { style: { position: 'relative' } },
         (() => {
@@ -543,7 +603,9 @@ window.__ModuleLoader__.load({
         h('button', { style: cardS.btn, onClick: () =>engineUpdate((s) => ({ ...s, view: s.view === 'compact' ? 'cards' : 'compact' })) },
           store.view === 'compact' ? '▦ ' + t('viewCards') : '☰ ' + t('viewCompact')),
         h('button', { style: cardS.btn, title: t('collectTip'), onClick: collectEnabled },
-          refreshing || busySrc ? '⏳ ' + t('collecting') : '⟳ ' + t('collect')));
+          refreshing || busySrc ? '⏳ ' + t('collecting') : '⟳ ' + t('collect')),
+        !isFavChannel ? h('button', { style: cardS.btn, title: tr('recheckTip', '用当前 AI 标准复审本栏已入库条目，不合格的剔除'), onClick: () => aiRecheck(ch.kinds[0]) },
+          eng.reviewing ? '⏳ ' + tr('reviewing', '复审中') : '🔍 ' + tr('recheck', '复审本栏')) : null);
 
       const paneTabs = ['feed', 'sources', 'blocks', 'about'].map((key) =>
         h('button', { key, style: pane === key ? cardS.tabOn : cardS.tab, onClick: () => setPane(key) }, t('pane_' + key)));
@@ -602,6 +664,7 @@ window.__ModuleLoader__.load({
       } else {
         body = h('div', { style: { display: 'flex', flexDirection: 'column', gap: 8, maxWidth: 640 } },
           h('p', { style: { margin: 0, fontSize: 13, lineHeight: 1.7, color: 'var(--dsw-alias-label-primary)' } }, t('aboutPipeline')),
+          lastAiModel ? h('p', { style: { margin: 0, fontSize: 12, color: 'var(--dsw-alias-label-secondary)' } }, 'AI: ' + lastAiModel) : null,
           h('p', { style: { margin: 0, fontSize: 12, lineHeight: 1.7, color: 'var(--dsw-alias-label-secondary)' } }, t('aboutData')),
           h('p', { style: { margin: 0, fontSize: 12, color: 'var(--dsw-alias-label-secondary)' } }, t('aboutSelfhost')),
           h('a', { href: REPO_URL, target: '_blank', rel: 'noreferrer', style: cardS.link }, t('aboutRepo')));
@@ -641,6 +704,7 @@ window.__ModuleLoader__.load({
               favorited: '已收藏',
               pane_feed: '信息流', pane_sources: '数据源', pane_blocks: '屏蔽词', pane_about: '关于',
               favorite: '收藏', open: '打开原文', copy: '复制',
+              recheck: '复审本栏', recheckTip: '用当前 AI 标准复审本栏已入库条目，不合格的剔除', reviewing: '复审中',
               enabled: '已启用', disabled: '已停用', add: '添加', remove: '移除',
               newSourceHint: '自定义 RSS 源名称…', blockHint: '添加屏蔽词（按标题匹配）…', blockEmpty: '暂无屏蔽词。',
               aboutPipeline: '工作流程：⟳ 采集 → Node 侧抓取 RSS（无 CORS）→ AI 自动筛选（淘汰噪音/软文）→ 语义定级（形态/分类/获取方式/星级）→ 标题与摘要翻译成中文 → 入库展示。',
@@ -668,6 +732,7 @@ window.__ModuleLoader__.load({
               favorited: 'Favorited',
               pane_feed: 'Feed', pane_sources: 'Sources', pane_blocks: 'Block list', pane_about: 'About',
               favorite: 'Favorite', open: 'Open source', copy: 'Copy',
+              recheck: 'Recheck', recheckTip: 'Re-run current AI standards over stored items in this channel; drop the ones that no longer pass', reviewing: 'Reviewing',
               enabled: 'Enabled', disabled: 'Disabled', add: 'Add', remove: 'Remove',
               newSourceHint: 'Custom RSS source name…', blockHint: 'Add a block word (matches titles)…', blockEmpty: 'No block words yet.',
               aboutPipeline: 'Pipeline: ⟳ collect → Node-side RSS fetch (no CORS) → AI auto-triage (drops noise/ads) → semantic classification (kind/category/obtain/stars) → titles & summaries translated to Chinese → ingested for display.',
