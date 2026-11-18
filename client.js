@@ -1,5 +1,5 @@
 window.__ModuleLoader__.load({
-  id: 'dsh-resource-radar-v6',
+  id: 'dsh-resource-radar-v7',
   factory(require) {
     const React = require('react');
     const { useState, useMemo, useCallback } = React;
@@ -204,10 +204,12 @@ window.__ModuleLoader__.load({
     function ItemCard(props) {
       const { t, item, view, onFav, onDismiss } = props;
       const fav = item.fav ? '★' : '☆';
+      const title = item.titleZh || item.title;
+      const note = item.noteZh || item.note;
       if (view === 'compact') {
         return h('div', { style: { ...cardS.card, flexDirection: 'row', alignItems: 'center', gap: 10, padding: '8px 12px' } },
           h('span', { style: { fontSize: 14 } }, KIND_ICON[item.kind] || '•'),
-          h('span', { style: { ...cardS.title, flex: 1, fontSize: 13 } }, item.title),
+          h('span', { style: { ...cardS.title, flex: 1, fontSize: 13 } }, title),
           h('span', { style: cardS.meta }, item.source),
           h('span', { style: cardS.meta }, item.time),
           h('button', { style: cardS.btn, title: t('favorite'), onClick: () => onFav(item.id) }, fav),
@@ -224,8 +226,8 @@ window.__ModuleLoader__.load({
           h(Badge, { text: t('ob_' + item.obtain) }),
           h(Badge, { text: '★'.repeat(Math.max(1, Math.min(5, item.quality || 3))) }),
           h('span', { style: { marginLeft: 'auto', ...cardS.meta } }, item.source + ' · ' + item.time)),
-        h('p', { style: cardS.title }, item.title),
-        item.note ? h('p', { style: { margin: 0, fontSize: 12, color: 'var(--dsw-alias-label-secondary)' } }, item.note) : null,
+        h('p', { style: cardS.title }, title),
+        note ? h('p', { style: { margin: 0, fontSize: 12, color: 'var(--dsw-alias-label-secondary)' } }, note) : null,
         item.code ? h('div', { style: { display: 'flex', alignItems: 'center', gap: 8 } },
           h('code', { style: { fontSize: 12, padding: '2px 8px', borderRadius: 6, background: 'var(--dsw-alias-bg-layer-2)' } }, item.code),
           h('button', { style: cardS.btn, onClick: () => { try { navigator.clipboard.writeText(item.code); } catch (e) { /* ignore */ } } }, t('copy'))) : null,
@@ -259,7 +261,7 @@ window.__ModuleLoader__.load({
           if (kindF && it.kind !== kindF) return false;
           if (catF && it.category !== catF) return false;
           if (obF && it.obtain !== obF) return false;
-          if (q && !it.title.toLowerCase().includes(q.toLowerCase())) return false;
+          if (q) { const needle = q.toLowerCase(); const hay = ((it.titleZh || it.title) + ' ' + it.title).toLowerCase(); if (!hay.includes(needle)) return false; }
           if (matchesBlock(it.title, store.blocklist)) return false;
           return true;
         }).sort((a, b) => (b.time || '').localeCompare(a.time || ''));
@@ -285,14 +287,62 @@ window.__ModuleLoader__.load({
         return added;
       }, [update]);
 
+      const aiBatch = useCallback(async (targets) => {
+        const payload = encodeURIComponent(JSON.stringify({
+          items: targets.map((it) => ({ id: it.id, title: it.title, note: it.note || '', url: it.url || '', source: it.source || '' })),
+        }));
+        const res = await fetch('/radar-ai?payload=' + payload, { signal: AbortSignal.timeout(150000) });
+        const data = await res.json();
+        if (!data.ok) throw new Error(data.error || 'HTTP ' + res.status);
+        return data;
+      }, []);
+
+      const applyAiResults = useCallback((results) => {
+        const map = new Map((results || []).map((r) => [r.id, r]));
+        return { map, apply: (it) => {
+          const r = map.get(it.id);
+          if (!r) return it;
+          return {
+            ...it,
+            kind: r.kind || it.kind,
+            category: r.category || it.category,
+            obtain: r.obtain || it.obtain,
+            quality: r.quality || it.quality,
+            ai: true,
+            keep: r.keep !== false,
+            titleZh: r.titleZh || it.titleZh,
+            noteZh: r.noteZh || it.noteZh,
+            note: (r.reason ? r.reason + (it.note ? '；' + it.note : '') : it.note).slice(0, 200),
+          };
+        } };
+      }, []);
+
       const collectSource = useCallback(async (source) => {
         if (!source.feedUrl) return { ok: false, added: 0, error: t('noFeed') };
         setBusySrc(source.id);
+        let added = 0, dropped = 0, aiError = '';
         try {
           const fresh = await fetchFeed(source);
-          const added = mergeItems(fresh);
+          const triaged = [];
+          for (let i = 0; i < fresh.length; i += 8) {
+            const batch = fresh.slice(i, i + 8);
+            try {
+              const data = await aiBatch(batch);
+              const { map, apply } = applyAiResults(data.results);
+              for (const it of batch) {
+                const r = map.get(it.id);
+                const done = apply(it);
+                if (r && r.keep === false) { dropped++; continue; }
+                triaged.push(done);
+              }
+            } catch (e) {
+              aiError = String((e && e.message) || e).slice(0, 100);
+              triaged.push(...batch);
+            }
+          }
+          added = mergeItems(triaged);
           update((s) => ({ ...s, sources: s.sources.map((x) => (x.id === source.id ? { ...x, lastCollect: new Date().toISOString(), lastCount: added, lastError: '' } : x)) }));
-          setLog((l) => [{ name: source.name, added, at: new Date().toLocaleTimeString() }, ...l].slice(0, 8));
+          setLog((l) => [{ name: source.name + ' [AI ✓ +' + added + (dropped ? ' · 淘汰 ' + dropped : '') + (aiError ? ' · 部分AI失败' : '') + ']', added, fail: !!aiError, at: new Date().toLocaleTimeString() }, ...l].slice(0, 8));
           return { ok: true, added };
         } catch (e) {
           update((s) => ({ ...s, sources: s.sources.map((x) => (x.id === source.id ? { ...x, lastCollect: new Date().toISOString(), lastCount: 0, lastError: String((e && e.message) || e).slice(0, 240) } : x)) }));
@@ -301,7 +351,7 @@ window.__ModuleLoader__.load({
         } finally {
           setBusySrc(null);
         }
-      }, [mergeItems, update, t]);
+      }, [aiBatch, applyAiResults, mergeItems, update, t]);
 
       const collectEnabled = useCallback(async () => {
         const enabled = store.sources.filter((s) => s.enabled);
@@ -314,32 +364,16 @@ window.__ModuleLoader__.load({
         if (!targets.length) { setLog((l) => [{ name: t('aiNone'), added: 0, at: new Date().toLocaleTimeString() }, ...l].slice(0, 8)); return; }
         setBusySrc('ai');
         try {
-          const payload = encodeURIComponent(JSON.stringify({
-            items: targets.map((it) => ({ id: it.id, title: it.title, note: it.note || '', url: it.url || '', source: it.source || '' })),
-          }));
-          const res = await fetch('/radar-ai?payload=' + payload, { signal: AbortSignal.timeout(90000) });
-          const data = await res.json();
-          if (!data.ok) throw new Error(data.error || 'HTTP ' + res.status);
-          update((s) => ({ ...s, items: s.items.map((it) => {
-            const r = (data.results || []).find((x) => x.id === it.id);
-            if (!r) return it;
-            return {
-              ...it,
-              kind: r.kind || it.kind,
-              category: r.category || it.category,
-              obtain: r.obtain || it.obtain,
-              quality: r.quality || it.quality,
-              ai: true,
-              note: (r.reason ? r.reason + (it.note ? '；' + it.note : '') : it.note).slice(0, 200),
-            };
-          }) }));
+          const data = await aiBatch(targets);
+          const { map, apply } = applyAiResults(data.results);
+          update((s) => ({ ...s, items: s.items.map((it) => (map.has(it.id) ? apply(it) : it)) }));
           setLog((l) => [{ name: '🤖 ' + t('aiDone') + ' [' + (data.model || '?') + '] +' + (data.results || []).length, added: (data.results || []).length, at: new Date().toLocaleTimeString() }, ...l].slice(0, 8));
         } catch (e) {
           setLog((l) => [{ name: '🤖 AI: ' + String((e && e.message) || e).slice(0, 90), added: 0, fail: true, at: new Date().toLocaleTimeString() }, ...l].slice(0, 8));
         } finally {
           setBusySrc(null);
         }
-      }, [items, update, t]);
+      }, [items, aiBatch, applyAiResults, update, t]);
 
       const fetchServer = useCallback(async () => {
         if (!store.serverUrl) { setFetchNote(t('setUrlFirst')); return; }
@@ -523,7 +557,7 @@ window.__ModuleLoader__.load({
               bridgeNote: 'B 方案：Host 端确定性抓取（/radar-fetch），无 CORS 限制；AI 定级走 DSH 默认模型。',
               aiReview: 'AI 定级', aiRunning: 'AI 处理中…', aiTip: '用 DSH 当前配置的模型给当前筛选下的条目做语义定级',
               aiDone: 'AI 定级完成', aiNone: '当前筛选下没有待定级条目',
-              collect: '采集', collecting: '采集中…', collectTip: '手动采集全部已启用源', collectOne: '采集此源',
+              collect: '采集', collecting: '采集中…', collectTip: '采集并经 AI 筛选/定级/翻译后入库', collectOne: '采集此源',
               noFeed: '未配置订阅地址（feed URL）', noEnabledSrc: '没有已启用的源', feedUrlHint: 'RSS / Atom 订阅地址…',
               kindHint: '默认形态', lastCollect: '上次采集新增', neverCollected: '尚未采集',
             },
@@ -547,7 +581,7 @@ window.__ModuleLoader__.load({
               bridgeNote: 'Option B: deterministic Host-side fetch via /radar-fetch (no CORS). AI triage runs on the DSH default model.',
               aiReview: 'AI triage', aiRunning: 'AI working…', aiTip: 'Classify filtered items with the DSH-configured model',
               aiDone: 'AI triage done', aiNone: 'No untriaged items under current filters',
-              collect: 'Collect', collecting: 'Collecting…', collectTip: 'Manually collect every enabled source', collectOne: 'Collect this source',
+              collect: 'Collect', collecting: 'Collecting…', collectTip: 'Collect, then AI-triage and translate before ingest', collectOne: 'Collect this source',
               noFeed: 'No feed URL configured', noEnabledSrc: 'No enabled sources', feedUrlHint: 'RSS / Atom feed URL…',
               kindHint: 'Default kind', lastCollect: 'Last collect added', neverCollected: 'Not collected yet',
             },

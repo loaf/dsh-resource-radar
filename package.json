@@ -1,5 +1,5 @@
 {
-  "name": "dsh-resource-radar-v6",
+  "name": "dsh-resource-radar-v7",
   "version": "1.0.0",
   "description": "Resource Radar (璧勬簮闆疯揪) 鈥?a freebie / deal / open-source / news aggregation workbench plugin for DeepSeek Harness, with a Host-side CORS-free RSS collector.",
   "type": "module",

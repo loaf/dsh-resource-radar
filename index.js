@@ -17,7 +17,7 @@ const AI_ROUTE = '/radar-ai';
 const MAX_BYTES = 5 * 1024 * 1024;
 const TIMEOUT_MS = 20000;
 const AI_TIMEOUT_MS = 60000;
-const AI_MAX_ITEMS = 12;
+const AI_MAX_ITEMS = 8;
 const DIAG = typeof process !== 'undefined' && process.env ? process.env.RESOURCE_RADAR_DIAG : '';
 
 function diag(msg) {
@@ -92,13 +92,16 @@ function defaultSelection(ctx) {
 }
 
 function buildPrompt(items) {
-  const system = '你是福利/资讯聚合雷达的分类引擎。只输出一个 JSON 数组，不要输出任何其他文字、不要用 markdown 代码块。';
-  const user = '对下列条目做语义定级。\n'
+  const system = '你是福利/资讯聚合雷达的分类与翻译引擎。只输出一个 JSON 数组，不要输出任何其他文字、不要用 markdown 代码块。';
+  const user = '对下列条目逐条做筛选、语义定级和中文翻译。\n'
+    + 'keep: 布尔值。true = 入选（对用户有价值），false = 淘汰（纯求助、灌水、无价值噪音、广告软文、与描述不符的内容）。\n'
     + 'kind 取值: freebie(白嫖福利) deal(特价好价/拼车/二手) opensource(开源项目) news(重要新闻) info(行业资讯/教程) noise(纯求助/灌水,无价值)\n'
     + 'category 取值: ' + CATEGORIES.join('/') + '\n'
     + 'obtain 取值: free(直接白嫖) conditional(有条件) lottery(抽奖) trial(试用) promo(推广引流) paid(需付费)\n'
     + 'quality: 1-5 整数, 5=高价值确定可领, 1=噪音。\n'
     + 'reason: 不超过 30 字的中文理由。\n'
+    + 'titleZh: 条目标题的简体中文翻译（保留产品名/活动名等专有名词原文）；keep=false 时可为空字符串。\n'
+    + 'noteZh: 摘要的简体中文翻译（无摘要或摘要无信息量时可为空字符串）。\n'
     + '条目列表(JSON):\n' + JSON.stringify(items);
   return { system, user };
 }
@@ -138,7 +141,7 @@ async function aiClassify(ctx, items) {
       system,
       messages: [{ role: 'user', content: [{ type: 'text', text: user }] }],
       temperature: 0.2,
-      maxTokens: 1600,
+      maxTokens: 3000,
     });
     for await (const chunk of stream) {
       if (chunk && chunk.type === 'text-delta') text += chunk.text;
@@ -160,11 +163,14 @@ async function aiClassify(ctx, items) {
     if (!row || typeof row !== 'object' || !row.id) continue;
     byId.set(String(row.id), {
       id: String(row.id),
+      keep: row.keep !== false,
       kind: KINDS.includes(row.kind) ? row.kind : undefined,
       category: CATEGORIES.includes(row.category) ? row.category : undefined,
       obtain: OBTAINS.includes(row.obtain) ? row.obtain : undefined,
       quality: Math.max(1, Math.min(5, Number(row.quality) || 3)),
       reason: String(row.reason || '').slice(0, 60),
+      titleZh: String(row.titleZh || '').slice(0, 200),
+      noteZh: String(row.noteZh || '').slice(0, 200),
     });
   }
   return { ok: true, model: sel.provider + '/' + sel.model, results: Array.from(byId.values()) };
