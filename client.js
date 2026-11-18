@@ -2,7 +2,7 @@ window.__ModuleLoader__.load({
   id: 'dsh-resource-radar-v7',
   factory(require) {
     const React = require('react');
-    const { useState, useMemo, useCallback } = React;
+    const { useState, useMemo, useCallback, useEffect, useRef } = React;
     const h = React.createElement;
 
     const STORE_KEY = 'resource-radar.v3';
@@ -69,12 +69,17 @@ window.__ModuleLoader__.load({
       { id: 's15', title: '求推荐一台 300 元以内的软由', kind: 'noise', category: 'hardware', obtain: 'free', quality: 1, source: 'NodeSeek 福利/拼车', url: '', note: '纯求助，建议屏蔽', time: '2026-11-16', code: '' },
     ];
 
+    let autoCollectDone = false;
+
     function loadStore() {
+      let firstRun = true;
       try {
         const raw = localStorage.getItem(STORE_KEY);
         if (raw) {
+          firstRun = false;
           const s = JSON.parse(raw);
           return {
+            firstRun,
             items: Array.isArray(s.items) ? s.items : SEED_ITEMS,
             sources: Array.isArray(s.sources) && s.sources.length ? s.sources : SEED_SOURCES,
             blocklist: Array.isArray(s.blocklist) ? s.blocklist : [],
@@ -82,7 +87,7 @@ window.__ModuleLoader__.load({
           };
         }
       } catch (e) { /* fall through */ }
-      return { items: SEED_ITEMS, sources: SEED_SOURCES, blocklist: [], view: 'cards' };
+      return { firstRun, items: SEED_ITEMS, sources: SEED_SOURCES, blocklist: [], view: 'cards' };
     }
 
     function matchesBlock(title, list) {
@@ -191,6 +196,10 @@ window.__ModuleLoader__.load({
   transform:translateY(-1px);}
 .rr-open:active{transform:translateY(0);box-shadow:none;}
 .rr-open svg{flex:none;}
+.rr-read{background:transparent;color:var(--dsw-alias-label-secondary);
+  border-color:var(--dsw-alias-border-l2);font-weight:500;cursor:default;}
+.rr-read:hover{background:transparent;color:var(--dsw-alias-label-secondary);
+  box-shadow:none;transform:none;}
 `;
 
     function useStore() {
@@ -218,22 +227,28 @@ window.__ModuleLoader__.load({
     }
 
     function ItemCard(props) {
-      const { t, item, view, onFav } = props;
+      const { t, item, view, onFav, onRead } = props;
       const fav = item.fav ? '★' : '☆';
       const title = item.titleZh || item.title;
       const note = item.noteZh || item.note;
+      const titleS = item.read
+        ? { ...cardS.title, color: 'var(--dsw-alias-label-secondary)', fontWeight: 500 }
+        : cardS.title;
+      const noteS = item.read
+        ? { margin: 0, fontSize: 12, color: 'var(--dsw-alias-label-secondary)', opacity: 0.7 }
+        : { margin: 0, fontSize: 12, color: 'var(--dsw-alias-label-secondary)' };
       const openBtn = item.url
-        ? h('a', { className: 'rr-open', href: item.url, target: '_blank', rel: 'noreferrer' },
+        ? h('a', { className: 'rr-open' + (item.read ? ' rr-read' : ''), href: item.url, target: '_blank', rel: 'noreferrer', onClick: () => onRead(item.id) },
           h('svg', { width: 13, height: 13, viewBox: '0 0 24 24', fill: 'none', stroke: 'currentColor', strokeWidth: 2.2, strokeLinecap: 'round', strokeLinejoin: 'round', 'aria-hidden': true },
             h('path', { d: 'M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6' }),
             h('polyline', { points: '15 3 21 3 21 9' }),
             h('line', { x1: 10, y1: 14, x2: 21, y2: 3 })),
-          t('open'))
+          item.read ? t('opened') : t('open'))
         : null;
       if (view === 'compact') {
-        return h('div', { style: { ...cardS.card, flexDirection: 'row', alignItems: 'center', gap: 10, padding: '8px 12px' } },
+        return h('div', { style: { ...cardS.card, flexDirection: 'row', alignItems: 'center', gap: 10, padding: '8px 12px', opacity: item.read ? 0.65 : 1 } },
           h('span', { style: { fontSize: 14 } }, KIND_ICON[item.kind] || '•'),
-          h('span', { style: { ...cardS.title, flex: 1, fontSize: 13 } }, title),
+          h('span', { style: { ...titleS, flex: 1, fontSize: 13 } }, title),
           h('span', { style: cardS.meta }, item.source),
           h('span', { style: cardS.meta }, item.time),
           openBtn,
@@ -248,8 +263,8 @@ window.__ModuleLoader__.load({
           h(Badge, { text: t('ob_' + item.obtain) }),
           h(Badge, { text: '★'.repeat(Math.max(1, Math.min(5, item.quality || 3))) }),
           h('span', { style: { marginLeft: 'auto', ...cardS.meta } }, item.source + ' · ' + item.time)),
-        h('p', { style: cardS.title }, title),
-        note ? h('p', { style: { margin: 0, fontSize: 12, color: 'var(--dsw-alias-label-secondary)' } }, note) : null,
+        h('p', { style: titleS }, title),
+        note ? h('p', { style: noteS } , note) : null,
         item.code ? h('div', { style: { display: 'flex', alignItems: 'center', gap: 8 } },
           h('code', { style: { fontSize: 12, padding: '2px 8px', borderRadius: 6, background: 'var(--dsw-alias-bg-layer-2)' } }, item.code),
           h('button', { style: cardS.btn, onClick: () => { try { navigator.clipboard.writeText(item.code); } catch (e) { /* ignore */ } } }, t('copy'))) : null,
@@ -288,7 +303,7 @@ window.__ModuleLoader__.load({
           if (q) { const needle = q.toLowerCase(); const hay = ((it.titleZh || it.title) + ' ' + it.title).toLowerCase(); if (!hay.includes(needle)) return false; }
           if (matchesBlock(it.title, store.blocklist)) return false;
           return true;
-        }).sort((a, b) => (b.time || '').localeCompare(a.time || ''));
+        }).sort((a, b) => ((a.read ? 1 : 0) - (b.read ? 1 : 0)) || (b.time || '').localeCompare(a.time || ''));
       }, [store.items, store.blocklist, channel, kindF, catF, obF, q, isFavChannel]);
 
       const counts = useMemo(() => {
@@ -298,6 +313,7 @@ window.__ModuleLoader__.load({
       }, [store.items, store.blocklist]);
 
       const toggleFav = (id) => update((s) => ({ ...s, items: s.items.map((it) => (it.id === id ? { ...it, fav: !it.fav } : it)) }));
+      const markRead = (id) => update((s) => ({ ...s, items: s.items.map((it) => (it.id === id && !it.read ? { ...it, read: true } : it)) }));
 
       const mergeItems = useCallback((fresh) => {
         let added = 0;
@@ -378,9 +394,20 @@ window.__ModuleLoader__.load({
 
       const collectEnabled = useCallback(async () => {
         const enabled = store.sources.filter((s) => s.enabled);
-        if (!enabled.length) { setLog([{ name: t('noEnabledSrc'), added: 0, at: new Date().toLocaleTimeString() }]); return; }
+        if (!enabled.length) { setLog([{ name: t('noEnabledSrc'), added: 0, at: new Date().toLocaleTimeString() }]); return 0; }
         for (const src of enabled) await collectSource(src);
+        return enabled.length;
       }, [store.sources, collectSource, t]);
+
+      const autoRef = useRef(false);
+      useEffect(() => {
+        if (autoRef.current) return;
+        autoRef.current = true;
+        if (!store.firstRun) return;
+        collectEnabled().then((n) => {
+          if (n) update((s) => ({ ...s, items: s.items.filter((it) => !/^s\d+$/.test(it.id)) }));
+        });
+      }, []);
 
       const channelTabs = Object.keys(CHANNELS).map((key) =>
         h('button', { key, style: channel === key ? cardS.tabOn : cardS.tab, onClick: () => setChannel(key) }, t('ch_' + key)));
@@ -416,7 +443,7 @@ window.__ModuleLoader__.load({
         body = h('div', null, collectLog,
           items.length
             ? h('div', { style: { display: store.view === 'compact' ? 'flex' : 'grid', flexDirection: 'column', gap: 8, gridTemplateColumns: store.view === 'compact' ? undefined : 'repeat(auto-fill, minmax(320px, 1fr))' } },
-              items.map((it) => h(ItemCard, { key: it.id, t, item: it, view: store.view, onFav: toggleFav })))
+              items.map((it) => h(ItemCard, { key: it.id, t, item: it, view: store.view, onFav: toggleFav, onRead: markRead })))
             : h('p', { style: cardS.meta }, isFavChannel ? t('favEmpty') : t('empty')));
       } else if (pane === 'sources') {
         body = h('div', { style: { display: 'flex', flexDirection: 'column', gap: 6 } },
@@ -428,7 +455,8 @@ window.__ModuleLoader__.load({
               h('button', { style: cardS.btn, title: t('collectOne'), onClick: () => collectSource(src) },
                 busySrc === src.id ? '⏳' : '⟳ ' + t('collect')),
               h('button', { style: cardS.btn, onClick: () => update((s) => ({ ...s, sources: s.sources.map((x) => (x.id === src.id ? { ...x, enabled: !x.enabled } : x)) })) },
-                src.enabled ? '● ' + t('enabled') : '○ ' + t('disabled'))),
+                src.enabled ? '● ' + t('enabled') : '○ ' + t('disabled')),
+              h('button', { style: cardS.btn, title: t('removeSrc'), onClick: () => update((s) => ({ ...s, sources: s.sources.filter((x) => x.id !== src.id) })) }, '✕')),
             h('div', { style: { display: 'flex', gap: 8, alignItems: 'center' } },
               h('input', { style: { ...cardS.input, flex: 1 }, placeholder: t('feedUrlHint'), value: src.feedUrl || '',
                 onChange: (e) => update((s) => ({ ...s, sources: s.sources.map((x) => (x.id === src.id ? { ...x, feedUrl: e.target.value } : x)) })) }),
@@ -512,9 +540,10 @@ window.__ModuleLoader__.load({
               aboutData: '所有数据保存在当前浏览器 localStorage，不写入会话或云端；清除浏览器数据即重置。',
               aboutSelfhost: '需要定时自动采集、多路由推送、多用户等完整能力时，建议自托管 freebie-radar（见 README 链接）。',
               aboutRepo: '项目主页与源码：github.com/loaf/dsh-resource-radar',
-              collect: '采集', collecting: '采集中…', collectTip: '采集并经 AI 筛选/定级/翻译后入库', collectOne: '采集此源',
+              collect: '刷新', collecting: '刷新中…', collectTip: '刷新所有已启用源（AI 筛选/定级/翻译后更新）', collectOne: '刷新此源',
               noFeed: '未配置订阅地址（feed URL）', noEnabledSrc: '没有已启用的源', feedUrlHint: 'RSS / Atom 订阅地址…',
-              kindHint: '默认形态', lastCollect: '上次采集新增', neverCollected: '尚未采集',
+              kindHint: '默认形态', lastCollect: '上次刷新新增', neverCollected: '尚未刷新', removeSrc: '删除此源',
+              opened: '已读',
             },
             en: {
               title: 'Resource Radar',
@@ -537,9 +566,10 @@ window.__ModuleLoader__.load({
               aboutData: 'All data lives in this browser localStorage — nothing is written to sessions or the cloud; clearing browser data resets it.',
               aboutSelfhost: 'For scheduled collection, push routing and multi-user support, self-host freebie-radar (see the README link).',
               aboutRepo: 'Project home & source: github.com/loaf/dsh-resource-radar',
-              collect: 'Collect', collecting: 'Collecting…', collectTip: 'Collect, then AI-triage and translate before ingest', collectOne: 'Collect this source',
+              collect: 'Refresh', collecting: 'Refreshing…', collectTip: 'Refresh every enabled source (AI-triage and translate before ingest)', collectOne: 'Refresh this source',
               noFeed: 'No feed URL configured', noEnabledSrc: 'No enabled sources', feedUrlHint: 'RSS / Atom feed URL…',
-              kindHint: 'Default kind', lastCollect: 'Last collect added', neverCollected: 'Not collected yet',
+              kindHint: 'Default kind', lastCollect: 'Last refresh added', neverCollected: 'Not refreshed yet', removeSrc: 'Delete this source',
+              opened: 'Read',
             },
           }),
           'resource-radar: dictionary',
