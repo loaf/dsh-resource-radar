@@ -471,6 +471,8 @@ window.__ModuleLoader__.load({
       const markRead = (id) => engineUpdate((s) => ({ ...s, items: s.items.map((it) => (it.id === id && !it.read ? { ...it, read: true } : it)) }));
 
 
+      const busySrcName = busySrc ? String(((store.sources.find((s) => s.id === busySrc) || {}).name || '').split('（')[0]) : '';
+
       const statusChip = h('div', { style: { position: 'relative' } },
         (() => {
           const last = log[0];
@@ -484,7 +486,9 @@ window.__ModuleLoader__.load({
             animation: busy ? 'rr-pulse 1.2s ease-in-out infinite' : 'none',
           };
           return h('button', { style: base, title: t('logTitle'), onClick: () => setChipOpen(!chipOpen) },
-            busy ? '⏳ ' + t('refreshing') : (last ? (hasFail ? '⚠ ' : '✓ ') + (last.name.split(' [')[0]) + ' +' + last.added : '✓ ' + t('idle')));
+            busy
+              ? '⏳ ' + t('readingSources') + (busySrc ? ' · ' + busySrcName : '')
+              : (last ? (hasFail ? '⚠ ' : '✓ ') + (last.name.split(' [')[0]) + ' +' + last.added : '✓ ' + t('idle')));
         })(),
         chipOpen && !refreshing ? h('div', { style: { position: 'absolute', top: '100%', right: 0, zIndex: 20, marginTop: 6, padding: '8px 12px', borderRadius: 10, border: '1px solid var(--dsw-alias-border-l2)', background: 'var(--dsw-alias-bg-overlay)', boxShadow: '0 6px 20px rgba(0,0,0,.15)', minWidth: 260, display: 'flex', flexDirection: 'column', gap: 3 } },
           log.length
@@ -646,7 +650,7 @@ window.__ModuleLoader__.load({
               collect: '刷新', collecting: '刷新中…', collectTip: '刷新所有已启用源（AI 筛选/定级/翻译后更新）', collectOne: '刷新此源',
               noFeed: '未配置订阅地址（feed URL）', noEnabledSrc: '没有已启用的源', feedUrlHint: 'RSS / Atom 订阅地址…',
               kindHint: '默认形态', lastCollect: '上次刷新新增', neverCollected: '尚未刷新', removeSrc: '删除此源',
-              opened: '已读', logTitle: '刷新日志（点击展开/收起）', refreshing: '刷新中…', idle: '尚未刷新', noLog: '暂无刷新记录',
+              opened: '已读', logTitle: '刷新日志（点击展开/收起）', readingSources: '读取数据源…', idle: '尚未刷新', noLog: '暂无刷新记录',
               filter: '过滤', clearFilters: '清除全部筛选',
             },
             en: {
@@ -673,7 +677,7 @@ window.__ModuleLoader__.load({
               collect: 'Refresh', collecting: 'Refreshing…', collectTip: 'Refresh every enabled source (AI-triage and translate before ingest)', collectOne: 'Refresh this source',
               noFeed: 'No feed URL configured', noEnabledSrc: 'No enabled sources', feedUrlHint: 'RSS / Atom feed URL…',
               kindHint: 'Default kind', lastCollect: 'Last refresh added', neverCollected: 'Not refreshed yet', removeSrc: 'Delete this source',
-              opened: 'Read', logTitle: 'Refresh log (click to toggle)', refreshing: 'Refreshing…', idle: 'Not refreshed yet', noLog: 'No refresh log yet',
+              opened: 'Read', logTitle: 'Refresh log (click to toggle)', readingSources: 'Reading sources…', idle: 'Not refreshed yet', noLog: 'No refresh log yet',
               filter: 'Filter', clearFilters: 'Clear filters',
             },
           }),
