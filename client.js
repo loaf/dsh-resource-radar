@@ -250,7 +250,6 @@ window.__ModuleLoader__.load({
       const [obF, setObF] = useState('');
       const [q, setQ] = useState('');
       const [pane, setPane] = useState('feed');
-      const [draft, setDraft] = useState({ title: '', kind: 'freebie', category: 'other', obtain: 'free', url: '', note: '', code: '' });
       const [busySrc, setBusySrc] = useState(null);
       const [log, setLog] = useState([]);
 
@@ -393,7 +392,7 @@ window.__ModuleLoader__.load({
             (e.fail ? '✕ ' : '✓ ') + e.name + ' · +' + e.added + ' · ' + e.at)))
         : null;
 
-      const paneTabs = ['feed', 'sources', 'blocks', 'add', 'about'].map((key) =>
+      const paneTabs = ['feed', 'sources', 'blocks', 'about'].map((key) =>
         h('button', { key, style: pane === key ? cardS.tabOn : cardS.tab, onClick: () => setPane(key) }, t('pane_' + key)));
 
       let body = null;
@@ -447,25 +446,6 @@ window.__ModuleLoader__.load({
             store.blocklist.length
               ? store.blocklist.map((w) => h('span', { key: w, style: { ...cardS.badge, cursor: 'pointer' }, title: t('remove'), onClick: () => update((s) => ({ ...s, blocklist: s.blocklist.filter((x) => x !== w) })) }, w + ' ✕'))
               : h('span', { style: cardS.meta }, t('blockEmpty'))));
-      } else if (pane === 'add') {
-        body = h('div', { style: { display: 'flex', flexDirection: 'column', gap: 8, maxWidth: 560 } },
-          h('input', { style: cardS.input, placeholder: t('fTitle'), value: draft.title, onChange: (e) => setDraft({ ...draft, title: e.target.value }) }),
-          h('div', { style: { display: 'flex', gap: 8, flexWrap: 'wrap' } },
-            h('select', { style: cardS.select, value: draft.kind, onChange: (e) => setDraft({ ...draft, kind: e.target.value }) },
-              KINDS.map((k) => h('option', { key: k, value: k }, t('kind_' + k)))),
-            h('select', { style: cardS.select, value: draft.category, onChange: (e) => setDraft({ ...draft, category: e.target.value }) },
-              CATEGORIES.map((c) => h('option', { key: c, value: c }, t('cat_' + c)))),
-            h('select', { style: cardS.select, value: draft.obtain, onChange: (e) => setDraft({ ...draft, obtain: e.target.value }) },
-              OBTAINS.map((o) => h('option', { key: o, value: o }, t('ob_' + o))))),
-          h('input', { style: cardS.input, placeholder: 'URL', value: draft.url, onChange: (e) => setDraft({ ...draft, url: e.target.value }) }),
-          h('input', { style: cardS.input, placeholder: t('fCode'), value: draft.code, onChange: (e) => setDraft({ ...draft, code: e.target.value }) }),
-          h('input', { style: cardS.input, placeholder: t('fNote'), value: draft.note, onChange: (e) => setDraft({ ...draft, note: e.target.value }) }),
-          h('button', { style: cardS.btn, onClick: () => {
-            if (!draft.title.trim()) return;
-            update((s) => ({ ...s, items: [{ id: 'm' + Date.now(), ...draft, title: draft.title.trim(), quality: 3, source: t('manual'), time: new Date().toISOString().slice(0, 10) }, ...s.items] }));
-            setDraft({ title: '', kind: 'freebie', category: 'other', obtain: 'free', url: '', note: '', code: '' });
-            setPane('feed');
-          } }, t('submitItem')));
       } else {
         body = h('div', { style: { display: 'flex', flexDirection: 'column', gap: 8, maxWidth: 640 } },
           h('p', { style: { margin: 0, fontSize: 13, lineHeight: 1.7, color: 'var(--dsw-alias-label-primary)' } }, t('aboutPipeline')),
@@ -507,11 +487,10 @@ window.__ModuleLoader__.load({
               viewCards: '卡片视图', viewCompact: '紧凑视图', empty: '当前筛选下没有条目。',
               favEmpty: '还没有收藏。点击条目上的 ☆ 收藏感兴趣的内容。',
               favorited: '已收藏',
-              pane_feed: '信息流', pane_sources: '数据源', pane_blocks: '屏蔽词', pane_add: '手动添加', pane_about: '关于',
+              pane_feed: '信息流', pane_sources: '数据源', pane_blocks: '屏蔽词', pane_about: '关于',
               favorite: '收藏', dismiss: '忽略', open: '打开原文', copy: '复制',
               enabled: '已启用', disabled: '已停用', add: '添加', remove: '移除',
               newSourceHint: '自定义 RSS 源名称…', blockHint: '添加屏蔽词（按标题匹配）…', blockEmpty: '暂无屏蔽词。',
-              fTitle: '标题', fCode: '兑换码（可选）', fNote: '备注（可选）', manual: '手动录入', submitItem: '录入到雷达',
               aboutPipeline: '工作流程：⟳ 采集 → Node 侧抓取 RSS（无 CORS）→ AI 自动筛选（淘汰噪音/软文）→ 语义定级（形态/分类/获取方式/星级）→ 标题与摘要翻译成中文 → 入库展示。',
               aboutData: '所有数据保存在当前浏览器 localStorage，不写入会话或云端；清除浏览器数据即重置。',
               aboutSelfhost: '需要定时自动采集、多路由推送、多用户等完整能力时，建议自托管 freebie-radar（见 README 链接）。',
@@ -533,11 +512,10 @@ window.__ModuleLoader__.load({
               viewCards: 'Card view', viewCompact: 'Compact view', empty: 'No items under the current filters.',
               favEmpty: 'No favorites yet. Click the ☆ on an item to save it.',
               favorited: 'Favorited',
-              pane_feed: 'Feed', pane_sources: 'Sources', pane_blocks: 'Block list', pane_add: 'Add item', pane_about: 'About',
+              pane_feed: 'Feed', pane_sources: 'Sources', pane_blocks: 'Block list', pane_about: 'About',
               favorite: 'Favorite', dismiss: 'Dismiss', open: 'Open source', copy: 'Copy',
               enabled: 'Enabled', disabled: 'Disabled', add: 'Add', remove: 'Remove',
               newSourceHint: 'Custom RSS source name…', blockHint: 'Add a block word (matches titles)…', blockEmpty: 'No block words yet.',
-              fTitle: 'Title', fCode: 'Redeem code (optional)', fNote: 'Note (optional)', manual: 'Manual', submitItem: 'Add to radar',
               aboutPipeline: 'Pipeline: ⟳ collect → Node-side RSS fetch (no CORS) → AI auto-triage (drops noise/ads) → semantic classification (kind/category/obtain/stars) → titles & summaries translated to Chinese → ingested for display.',
               aboutData: 'All data lives in this browser localStorage — nothing is written to sessions or the cloud; clearing browser data resets it.',
               aboutSelfhost: 'For scheduled collection, push routing and multi-user support, self-host freebie-radar (see the README link).',
