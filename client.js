@@ -374,29 +374,38 @@ window.__ModuleLoader__.load({
       const collectSource = useCallback(async (source) => {
         if (!source.feedUrl) return { ok: false, added: 0, error: t('noFeed') };
         setBusySrc(source.id);
-        let added = 0, dropped = 0, aiError = '';
+        let added = 0, dropped = 0, aiFailed = false;
         try {
           const fresh = await fetchFeed(source);
           const triaged = [];
-          for (let i = 0; i < fresh.length; i += 8) {
-            const batch = fresh.slice(i, i + 8);
-            try {
-              const data = await aiBatch(batch);
-              const { map, apply } = applyAiResults(data.results);
-              for (const it of batch) {
-                const r = map.get(it.id);
-                const done = apply(it);
-                if (r && r.keep === false) { dropped++; continue; }
-                triaged.push(done);
+          const seenKeys = new Set(store.items.map((it) => (it.url || it.title).slice(0, 120)));
+          const newItems = fresh.filter((it) => { const k = (it.url || it.title).slice(0, 120); if (seenKeys.has(k)) return false; seenKeys.add(k); return true; });
+          let aiFailed = false;
+          const AI_CONCURRENCY = 3;
+          const results = await Promise.all(Array.from({ length: Math.min(AI_CONCURRENCY, Math.ceil(newItems.length / 8)) }, async (_, worker) => {
+            const out = [];
+            for (let i = worker * 8; i < newItems.length; i += 8 * AI_CONCURRENCY) {
+              const batch = newItems.slice(i, i + 8);
+              try {
+                const data = await aiBatch(batch);
+                const { map, apply } = applyAiResults(data.results);
+                for (const it of batch) {
+                  const r = map.get(it.id);
+                  const done = apply(it);
+                  if (r && r.keep === false) { dropped++; continue; }
+                  out.push(done);
+                }
+              } catch (e) {
+                aiFailed = true;
+                out.push(...batch);
               }
-            } catch (e) {
-              aiError = String((e && e.message) || e).slice(0, 100);
-              triaged.push(...batch);
             }
-          }
+            return out;
+          }));
+          for (const part of results) triaged.push(...part);
           added = mergeItems(triaged);
           update((s) => ({ ...s, sources: s.sources.map((x) => (x.id === source.id ? { ...x, lastCollect: new Date().toISOString(), lastCount: added, lastError: '' } : x)) }));
-          setLog((l) => [{ name: source.name + ' [AI +' + added + (dropped ? ' / 淘汰 ' + dropped : '') + (aiError ? ' / 部分AI失败' : '') + ']', added, fail: !!aiError, at: new Date().toLocaleTimeString() }, ...l].slice(0, 8));
+          setLog((l) => [{ name: source.name + ' [AI +' + added + (dropped ? ' / 淘汰 ' + dropped : '') + (newItems.length ? ' / 新 ' + newItems.length : ' / 无新条目') + (aiFailed ? ' / 部分AI失败' : '') + ']', added, fail: aiFailed, at: new Date().toLocaleTimeString() }, ...l].slice(0, 8));
           return { ok: true, added };
         } catch (e) {
           update((s) => ({ ...s, sources: s.sources.map((x) => (x.id === source.id ? { ...x, lastCollect: new Date().toISOString(), lastCount: 0, lastError: String((e && e.message) || e).slice(0, 240) } : x)) }));
