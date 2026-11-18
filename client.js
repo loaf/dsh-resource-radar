@@ -1,5 +1,5 @@
 window.__ModuleLoader__.load({
-  id: 'dsh-resource-radar-v7',
+  id: 'dsh-resource-radar-v8',
   factory(require) {
     const React = require('react');
     const { useState, useMemo, useCallback, useEffect, useRef } = React;
@@ -42,6 +42,8 @@ window.__ModuleLoader__.load({
       { id: 'github-trending', name: 'GitHub Trending', type: 'rss', enabled: false, feedUrl: '', kindHint: 'opensource', catHint: 'opensource' },
       { id: 'tg-channels', name: 'Telegram 频道', type: 'rss', enabled: false, feedUrl: '', kindHint: 'info', catHint: 'other' },
     ];
+
+    const STORE_ROUTE = '/radar-store';
 
     const CORS_RELAYS = [
       { name: 'host', url: (u) => '/radar-fetch?url=' + encodeURIComponent(u), kind: 'xml' },
@@ -204,10 +206,21 @@ window.__ModuleLoader__.load({
 
     function useStore() {
       const [store, setStore] = useState(loadStore);
+      const saveTimer = useRef(null);
       const update = useCallback((fn) => {
         setStore((prev) => {
           const next = fn(prev);
           try { localStorage.setItem(STORE_KEY, JSON.stringify(next)); } catch (e) { /* ignore */ }
+          try {
+            clearTimeout(saveTimer.current);
+            saveTimer.current = setTimeout(() => {
+              fetch(STORE_ROUTE, {
+                method: 'POST',
+                headers: { 'content-type': 'application/json' },
+                body: JSON.stringify({ items: next.items, sources: next.sources, blocklist: next.blocklist, view: next.view }),
+              }).catch(() => { /* host route unavailable; localStorage cache remains */ });
+            }, 800);
+          } catch (e) { /* ignore */ }
           return next;
         });
       }, []);
@@ -400,12 +413,24 @@ window.__ModuleLoader__.load({
       }, [store.sources, collectSource, t]);
 
       const autoRef = useRef(false);
+      const startAuto = () => collectEnabled().then((n) => {
+        if (n) update((s) => ({ ...s, items: s.items.filter((it) => !/^s\d+$/.test(it.id)) }));
+      });
       useEffect(() => {
         if (autoRef.current) return;
         autoRef.current = true;
-        if (!store.firstRun) return;
-        collectEnabled().then((n) => {
-          if (n) update((s) => ({ ...s, items: s.items.filter((it) => !/^s\d+$/.test(it.id)) }));
+        // Host-side durable store wins over the localStorage cache (it survives wipes).
+        fetch(STORE_ROUTE).then((r) => r.json()).then((j) => {
+          let hasHost = false;
+          if (j && j.ok && j.data && Array.isArray(j.data.items) && j.data.items.length) {
+            hasHost = true;
+            setStore((s) => ({ ...s, items: j.data.items, sources: j.data.sources || s.sources, blocklist: j.data.blocklist || s.blocklist, view: j.data.view || s.view, firstRun: false }));
+          }
+          if (hasHost || !store.firstRun) return undefined;
+          return startAuto();
+        }).catch(() => {
+          if (!store.firstRun) return undefined;
+          return startAuto();
         });
       }, []);
 

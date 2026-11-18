@@ -14,11 +14,63 @@
 
 const FETCH_ROUTE = '/radar-fetch';
 const AI_ROUTE = '/radar-ai';
+const STORE_ROUTE = '/radar-store';
 const MAX_BYTES = 5 * 1024 * 1024;
 const TIMEOUT_MS = 20000;
 const AI_TIMEOUT_MS = 60000;
 const AI_MAX_ITEMS = 8;
 const DIAG = typeof process !== 'undefined' && process.env ? process.env.RESOURCE_RADAR_DIAG : '';
+
+/** Durable data file: <profile-dir>/resource-radar-data.json (survives browser storage wipes). */
+function dataFilePath() {
+  try {
+    const os = process.getBuiltinModule ? process.getBuiltinModule('node:os') : null;
+    const path = process.getBuiltinModule ? process.getBuiltinModule('node:path') : null;
+    if (!os || !path) return null;
+    const profile = process.env.DSH_PROFILE || 'desktop';
+    const dir = process.env.DSH_PROFILE_DIR || path.join(os.homedir(), '.dsh', 'profiles', profile);
+    return path.join(dir, 'resource-radar-data.json');
+  } catch { return null; }
+}
+
+/** GET returns the saved store; POST replaces it. Body: the workbench store JSON. */
+function storeRoute(req, res) {
+  const fs = process.getBuiltinModule ? process.getBuiltinModule('node:fs') : null;
+  const json = (code, obj) => {
+    res.writeHead(code, { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store' });
+    res.end(JSON.stringify(obj));
+  };
+  const file = dataFilePath();
+  if (!fs || !file) return json(503, { ok: false, error: 'storage unavailable' });
+  if (req.method === 'GET') {
+    try {
+      const text = fs.readFileSync(file, 'utf8');
+      const data = JSON.parse(text);
+      if (!data || !Array.isArray(data.items)) throw new Error('invalid');
+      return json(200, { ok: true, data });
+    } catch {
+      return json(200, { ok: true, data: null });
+    }
+  }
+  if (req.method === 'POST') {
+    const chunks = [];
+    let size = 0;
+    req.on('data', (c) => { size += c.length; if (size <= MAX_BYTES) chunks.push(c); else req.destroy(); });
+    req.on('end', () => {
+      try {
+        const data = JSON.parse(Buffer.concat(chunks).toString('utf8'));
+        if (!data || !Array.isArray(data.items) || !Array.isArray(data.sources)) return json(400, { ok: false, error: 'invalid store' });
+        fs.writeFileSync(file, JSON.stringify(data));
+        json(200, { ok: true });
+      } catch (e) {
+        json(400, { ok: false, error: String((e && e.message) || e).slice(0, 120) });
+      }
+    });
+    req.on('error', () => json(400, { ok: false, error: 'request error' }));
+    return;
+  }
+  json(405, { ok: false, error: 'method not allowed' });
+}
 
 function diag(msg) {
   if (!DIAG) return;
@@ -217,6 +269,7 @@ export function apply(ctx) {
           try {
             disposers.push(webServer.register({ kind: 'prefix', path: FETCH_ROUTE, resource: fetchFeed }));
             disposers.push(webServer.register({ kind: 'prefix', path: AI_ROUTE, resource: (request) => radarAi(request, ctx) }));
+            disposers.push(webServer.register({ kind: 'prefix', path: STORE_ROUTE, handler: storeRoute }));
             let origin = '?';
             try { origin = webServer.getOrigin ? webServer.getOrigin() : '?'; } catch { origin = '?'; }
             diag('registered ' + FETCH_ROUTE + ' + ' + AI_ROUTE + ' on ' + origin);
