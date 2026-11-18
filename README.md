@@ -1,6 +1,6 @@
 # dsh-resource-radar · 资源雷达
 
-一个用于 **DeepSeek Harness (DSH)** 的界面插件：在左侧导航栏新增「资源雷达」入口，点开是一个参考 [ZiChuanLan/freebie-radar](https://github.com/ZiChuanLan/freebie-radar) 的福利 / 好价 / 开源 / 资讯聚合工作台。采集结果**自动经 AI 筛选、定级并翻译成中文**后展示，AI 使用 DSH 中已配置的默认模型，无需额外 API Key。
+一个用于 **DeepSeek Harness (DSH)** 的界面插件：在左侧导航栏新增「资源雷达」入口，点开是一个福利 / 好价 / 开源 / 资讯聚合工作台。采集结果**自动经 AI 筛选、定级并翻译成中文**后展示，AI 使用 DSH 中已配置的默认模型，无需额外 API Key。
 
 > 这是一个 DSH 插件（bundle），不是独立应用。它通过 DSH 的 `sidebar.panellist` 与 `main` 槽位注册导航入口与中央面板。
 
@@ -41,7 +41,7 @@ DeepSeek Harness → **设置 → 插件 → 添加插件 → 本地目录**，�
 ├── client.js            # 前端半：导航入口 + 工作台（React.createElement，无构建）
 ├── icon.svg             # 插件图标
 ├── locale/{zh,en}.json  # 插件显示标题 / 描述
-└── docs/DETAIL.md       # 插件详情（插件管理页展示）
+└── docs/                # 插件详情页：DETAIL.md（英）/ DETAIL.zh.md（中）+ preview.svg 功能图
 ```
 
 ## Host 端路由
@@ -56,11 +56,11 @@ DeepSeek Harness → **设置 → 插件 → 添加插件 → 本地目录**，�
 
 - **受 Cloudflare 保护的站点**（如 LINUX DO、NodeSeek）Node 直连返回 403，需要额外部署 FlareSolverr 才能采集；这些源默认停用并在名称中标注。
 - AI 定级质量取决于 DSH 中配置的模型；每次刷新的耗时与 token 消耗随新条目数线性增长。
-- RSS 抓取每源上限 40 条；不含定时自动刷新、推送路由与多用户，需要完整能力请自托管 freebie-radar。
+- RSS 抓取每源上限 40 条；不含定时自动刷新、推送路由与多用户。
 
 ## 致谢
 
-分类体系与产品思路参考 [ZiChuanLan/freebie-radar](https://github.com/ZiChuanLan/freebie-radar)（MIT）。
+灵感来源：早期版本参考了 [ZiChuanLan/freebie-radar](https://github.com/ZiChuanLan/freebie-radar)（MIT）；此后界面与实现已独立演进。
 
 ## License
 

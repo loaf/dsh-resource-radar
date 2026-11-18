@@ -1,7 +1,7 @@
 {
   "meta": {
     "title": "Resource Radar",
-    "description": "A freebie and information radar workbench in the left navigation: channel tabs, kind/category/obtain triage, block-word firewall, source management, with AI triage and Chinese translation built in. Reference project: ZiChuanLan/freebie-radar.",
+    "description": "A freebie / deal / open-source / news radar workbench in the left navigation. Refreshing fetches RSS/Atom through a CORS-free Host route; the client parses and dedupes, then runs an AI pipeline over the DSH-configured default model: keep filtering drops noise and sponsored posts, six content kinds route items into channels, 27 categories × 6 obtain levels × 1–5 star quality, and titles/notes are translated into Chinese. Channel tabs with counts plus ★ favorites, three-level filters in a ⚙ popup, a block-word firewall, read items grayed and sunk, compact/card views, a status chip with a hover refresh log; built-in sources can be toggled, edited, added, or refreshed per source. Data persists in the profile's resource-radar-data.json. Restart DeepSeek Harness to load or update Host routes; Cloudflare-protected sites (LINUX DO, NodeSeek) fail with 403 and their sources ship disabled.",
     "detail": "docs/DETAIL.md"
   }
 }

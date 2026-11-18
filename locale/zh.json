@@ -1,7 +1,7 @@
 {
   "meta": {
     "title": "资源雷达",
-    "description": "左侧导航中的福利与资讯雷达工作台：兴趣频道分流、形态/分类/获取方式三级筛选、屏蔽词防火墙、数据源管理，采集结果自动经 AI 筛选、定级并翻译成中文。参考项目：ZiChuanLan/freebie-radar。",
-    "detail": "docs/DETAIL.md"
+    "description": "左侧导航中的福利 / 好价 / 开源 / 资讯雷达工作台。刷新时由 Host 端无 CORS 抓取 RSS/Atom，前端解析去重后，经 DSH 已配置的默认模型做 AI 流水线：keep 筛选淘汰噪音软文、六类形态分流到频道、27 类分类 × 6 级获取方式 × 1–5 星定级、标题/摘要翻译成中文。兴趣频道 + ★ 收藏、三级筛选（收在 ⚙ 过滤弹层）、屏蔽词防火墙、已读置灰沉底、卡片/紧凑视图、状态胶囊 + 悬浮刷新日志；内置数据源可启停/编辑/新增/按源刷新，数据持久化在 profile 的 resource-radar-data.json。需要重启 DeepSeek Harness 才能加载或更新 Host 端路由；Cloudflare 防护站点（LINUX DO、NodeSeek）直连 403，相关源默认停用。",
+    "detail": "docs/DETAIL.zh.md"
   }
 }
