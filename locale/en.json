@@ -1,7 +1,7 @@
 {
   "meta": {
     "title": "Resource Radar",
-    "description": "A freebie and information radar workbench in the left navigation: channel tabs, kind/category/obtain triage, block-word firewall, source management, and a best-effort bridge to a self-hosted freebie-radar instance. Reference project: ZiChuanLan/freebie-radar.",
+    "description": "A freebie and information radar workbench in the left navigation: channel tabs, kind/category/obtain triage, block-word firewall, source management, with AI triage and Chinese translation built in. Reference project: ZiChuanLan/freebie-radar.",
     "detail": "docs/DETAIL.md"
   }
 }

@@ -1,7 +1,7 @@
 {
   "meta": {
     "title": "资源雷达",
-    "description": "左侧导航中的福利与资讯雷达工作台：兴趣频道分流、形态/分类/获取方式三级筛选、屏蔽词防火墙、数据源管理，并可桥接自托管 freebie-radar 实例。参考项目：ZiChuanLan/freebie-radar。",
+    "description": "左侧导航中的福利与资讯雷达工作台：兴趣频道分流、形态/分类/获取方式三级筛选、屏蔽词防火墙、数据源管理，采集结果自动经 AI 筛选、定级并翻译成中文。参考项目：ZiChuanLan/freebie-radar。",
     "detail": "docs/DETAIL.md"
   }
 }
