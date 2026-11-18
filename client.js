@@ -218,7 +218,7 @@ window.__ModuleLoader__.load({
     }
 
     function ItemCard(props) {
-      const { t, item, view, onFav, onDismiss } = props;
+      const { t, item, view, onFav } = props;
       const fav = item.fav ? '★' : '☆';
       const title = item.titleZh || item.title;
       const note = item.noteZh || item.note;
@@ -237,8 +237,7 @@ window.__ModuleLoader__.load({
           h('span', { style: cardS.meta }, item.source),
           h('span', { style: cardS.meta }, item.time),
           openBtn,
-          h('button', { style: cardS.btnFav, title: t('favorite'), onClick: () => onFav(item.id) }, fav),
-          h('button', { style: cardS.btn, title: t('dismiss'), onClick: () => onDismiss(item.id) }, '✕'));
+          h('button', { style: cardS.btnFav, title: t('favorite'), onClick: () => onFav(item.id) }, fav));
       }
       return h('div', { style: cardS.card },
         h('div', { style: { display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center' } },
@@ -256,8 +255,7 @@ window.__ModuleLoader__.load({
           h('button', { style: cardS.btn, onClick: () => { try { navigator.clipboard.writeText(item.code); } catch (e) { /* ignore */ } } }, t('copy'))) : null,
         h('div', { style: { display: 'flex', gap: 8, alignItems: 'center' } },
           openBtn,
-          h('button', { style: item.fav ? cardS.btnFav : cardS.btn, onClick: () => onFav(item.id) }, fav + ' ' + t('favorite')),
-          h('button', { style: cardS.btn, onClick: () => onDismiss(item.id) }, t('dismiss'))));
+          h('button', { style: item.fav ? cardS.btnFav : cardS.btn, onClick: () => onFav(item.id) }, fav + ' ' + t('favorite'))));
     }
 
     function Workbench(props) {
@@ -300,7 +298,6 @@ window.__ModuleLoader__.load({
       }, [store.items, store.blocklist]);
 
       const toggleFav = (id) => update((s) => ({ ...s, items: s.items.map((it) => (it.id === id ? { ...it, fav: !it.fav } : it)) }));
-      const dismiss = (id) => update((s) => ({ ...s, items: s.items.filter((it) => it.id !== id) }));
 
       const mergeItems = useCallback((fresh) => {
         let added = 0;
@@ -419,7 +416,7 @@ window.__ModuleLoader__.load({
         body = h('div', null, collectLog,
           items.length
             ? h('div', { style: { display: store.view === 'compact' ? 'flex' : 'grid', flexDirection: 'column', gap: 8, gridTemplateColumns: store.view === 'compact' ? undefined : 'repeat(auto-fill, minmax(320px, 1fr))' } },
-              items.map((it) => h(ItemCard, { key: it.id, t, item: it, view: store.view, onFav: toggleFav, onDismiss: dismiss })))
+              items.map((it) => h(ItemCard, { key: it.id, t, item: it, view: store.view, onFav: toggleFav })))
             : h('p', { style: cardS.meta }, isFavChannel ? t('favEmpty') : t('empty')));
       } else if (pane === 'sources') {
         body = h('div', { style: { display: 'flex', flexDirection: 'column', gap: 6 } },
@@ -508,7 +505,7 @@ window.__ModuleLoader__.load({
               favEmpty: '还没有收藏。点击条目上的 ☆ 收藏感兴趣的内容。',
               favorited: '已收藏',
               pane_feed: '信息流', pane_sources: '数据源', pane_blocks: '屏蔽词', pane_about: '关于',
-              favorite: '收藏', dismiss: '忽略', open: '打开原文', copy: '复制',
+              favorite: '收藏', open: '打开原文', copy: '复制',
               enabled: '已启用', disabled: '已停用', add: '添加', remove: '移除',
               newSourceHint: '自定义 RSS 源名称…', blockHint: '添加屏蔽词（按标题匹配）…', blockEmpty: '暂无屏蔽词。',
               aboutPipeline: '工作流程：⟳ 采集 → Node 侧抓取 RSS（无 CORS）→ AI 自动筛选（淘汰噪音/软文）→ 语义定级（形态/分类/获取方式/星级）→ 标题与摘要翻译成中文 → 入库展示。',
@@ -533,7 +530,7 @@ window.__ModuleLoader__.load({
               favEmpty: 'No favorites yet. Click the ☆ on an item to save it.',
               favorited: 'Favorited',
               pane_feed: 'Feed', pane_sources: 'Sources', pane_blocks: 'Block list', pane_about: 'About',
-              favorite: 'Favorite', dismiss: 'Dismiss', open: 'Open source', copy: 'Copy',
+              favorite: 'Favorite', open: 'Open source', copy: 'Copy',
               enabled: 'Enabled', disabled: 'Disabled', add: 'Add', remove: 'Remove',
               newSourceHint: 'Custom RSS source name…', blockHint: 'Add a block word (matches titles)…', blockEmpty: 'No block words yet.',
               aboutPipeline: 'Pipeline: ⟳ collect → Node-side RSS fetch (no CORS) → AI auto-triage (drops noise/ads) → semantic classification (kind/category/obtain/stars) → titles & summaries translated to Chinese → ingested for display.',
